@@ -1,0 +1,55 @@
+# Rust build artifacts
+/target/
+**/*.rs.bk
+*.pdb
+
+# Cargo files
+# Note: Cargo.lock is tracked for reproducible builds (recommended for binaries)
+
+# Fuzzing artifacts
+/fuzz/target/
+/fuzz/corpus/
+/fuzz/artifacts/
+
+# The Documentation is still under development
+docs/
+docs/build/
+.github/workflows/docs.yml
+
+# Testing
+*.profraw
+*.gcda
+*.gcno
+
+# IDE / Editor files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+*.iml
+
+# OS files
+Thumbs.db
+.DS_Store
+
+# Coverage reports
+/coverage/
+*.lcov
+tarpaulin-report.html
+
+# Benchmark results
+/target/criterion/
+
+# Environment files
+.env
+.env.local
+
+# Temporary files
+*.tmp
+*.temp
+*.log
+
+# Build artifacts from examples
+/examples/target/

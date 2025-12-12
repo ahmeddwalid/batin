@@ -1,0 +1,9 @@
+Batin is a professional-grade file identification tool using magic bytes,
+Shannon entropy, and advanced threat detection for cybersecurity applications.
+It detects polyglot files, packed executables, and embedded threats.
+
+It features:
+- Magic Byte Signatures: Database of 50+ file formats
+- Entropy Analysis: Calculates file randomness to detect packed code
+- Polyglot Detection: Identifies files interpretable as multiple formats
+- Embedded Threat Scanning: Detects macros and scripts

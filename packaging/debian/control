@@ -1,0 +1,15 @@
+Source: batin
+Section: utils
+Priority: optional
+Maintainer: Ahmed Walid <devahmedwalid@proton.me>
+Build-Depends: debhelper (>= 12), cargo, rustc
+Standards-Version: 4.5.0
+Homepage: https://github.com/ahmeddwalid/batin
+
+Package: batin
+Architecture: any
+Depends: ${shlibs:Depends}, ${misc:Depends}
+Description: Security-hardened file type detection with entropy analysis
+ Batin is a professional-grade file identification tool using magic bytes,
+ Shannon entropy, and advanced threat detection for cybersecurity applications.
+ It detects polyglot files, packed executables, and embedded threats.

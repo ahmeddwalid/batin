@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="utf-8"?>
+<package xmlns="http://schemas.microsoft.com/packaging/2015/06/nuspec.xsd">
+  <metadata>
+    <id>batin</id>
+    <version>0.2.0</version>
+    <packageSourceUrl>https://github.com/ahmeddwalid/batin</packageSourceUrl>
+    <owners>Ahmed Walid</owners>
+    <title>Batin</title>
+    <authors>Ahmed Walid</authors>
+    <projectUrl>https://github.com/ahmeddwalid/batin</projectUrl>
+    <licenseUrl>https://github.com/ahmeddwalid/batin/blob/main/LICENSE</licenseUrl>
+    <requireLicenseAcceptance>false</requireLicenseAcceptance>
+    <tags>batin security forensics malware-detection entropy rust</tags>
+    <summary>Security-hardened file type detection with entropy analysis</summary>
+    <description>
+      Batin is a professional-grade file identification tool using magic bytes,
+      Shannon entropy, and advanced threat detection for cybersecurity applications.
+      It detects polyglot files, packed executables, and embedded threats.
+    </description>
+  </metadata>
+  <files>
+    <file src="tools\**" target="tools" />
+  </files>
+</package>
