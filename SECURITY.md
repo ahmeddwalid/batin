@@ -1,12 +1,5 @@
 # Security Policy
 
-## Supported Versions
-
-| Version | Supported          |
-| ------- | ------------------ |
-| 0.2.x   | :white_check_mark: |
-| 0.1.x   | :x:                |
-
 ## Reporting a Vulnerability
 
 We take security vulnerabilities seriously. If you discover a security issue in Batin, please report it responsibly.
@@ -14,7 +7,7 @@ We take security vulnerabilities seriously. If you discover a security issue in 
 ### How to Report
 
 1. **Do NOT open a public issue** for security vulnerabilities
-2. Email security concerns to: `security@batin.dev` (or use GitHub's private vulnerability reporting)
+2. Email security concerns to: `devahmedwalid@proton.me` (or use GitHub's private vulnerability reporting)
 3. Include the following in your report:
    - Description of the vulnerability
    - Steps to reproduce
