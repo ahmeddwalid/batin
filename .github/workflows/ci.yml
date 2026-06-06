@@ -7,6 +7,10 @@ on:
       - 'v*'
   pull_request:
     branches: [main, master]
+  schedule:
+    # Nightly fuzzing run at 03:00 UTC.
+    - cron: '0 3 * * *'
+  workflow_dispatch:
 
 env:
   CARGO_TERM_COLOR: always
@@ -40,13 +44,21 @@ jobs:
         run: cargo fmt --all -- --check
 
       - name: Run clippy
-        run: cargo clippy --all-features -- -D warnings
+        run: cargo clippy --features full -- -D warnings
 
       - name: Build
-        run: cargo build --all-features --verbose
+        run: cargo build --features full --verbose
 
       - name: Run tests
-        run: cargo test --all-features --verbose
+        run: cargo test --features full --verbose
+
+      - name: Doc tests
+        run: cargo test --doc --features full
+
+      - name: Build docs (deny warnings)
+        env:
+          RUSTDOCFLAGS: "-D warnings"
+        run: cargo doc --no-deps --features full
 
       - name: Test no default features
         run: cargo check --no-default-features
@@ -56,6 +68,8 @@ jobs:
           cargo check --features hashing
           cargo check --features binary-parsing
           cargo check --features archive
+          cargo check --features async
+          cargo check --features server
 
   # ==========================================================================
   # Cross-platform builds (macOS and Windows)
@@ -69,10 +83,10 @@ jobs:
         uses: dtolnay/rust-toolchain@stable
 
       - name: Build
-        run: cargo build --all-features
+        run: cargo build --features full
 
       - name: Run tests
-        run: cargo test --all-features
+        run: cargo test --features full
 
   test-windows:
     runs-on: windows-latest
@@ -83,10 +97,10 @@ jobs:
         uses: dtolnay/rust-toolchain@stable
 
       - name: Build
-        run: cargo build --all-features
+        run: cargo build --features full
 
       - name: Run tests
-        run: cargo test --all-features
+        run: cargo test --features full
 
   # ==========================================================================
   # MSRV Check
@@ -100,7 +114,10 @@ jobs:
         uses: dtolnay/rust-toolchain@1.75.0
 
       - name: Check MSRV
-        run: cargo check --all-features --verbose
+        run: cargo check --features full --verbose
+
+      - name: Test on MSRV
+        run: cargo test --features full --verbose
 
   # ==========================================================================
   # Security Audit
@@ -115,6 +132,167 @@ jobs:
 
       - name: Security audit
         run: cargo audit
+
+  # ==========================================================================
+  # Dependency policy (licenses + advisories + bans)
+  # ==========================================================================
+  cargo-deny:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: EmbarkStudios/cargo-deny-action@v2
+        with:
+          command: check
+
+  # ==========================================================================
+  # Code coverage
+  # ==========================================================================
+  coverage:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: llvm-tools-preview
+
+      - name: Install cargo-llvm-cov
+        uses: taiki-e/install-action@cargo-llvm-cov
+
+      - name: Generate coverage
+        run: cargo llvm-cov --features full --workspace --lcov --output-path lcov.info
+
+      - name: Upload to Codecov
+        uses: codecov/codecov-action@v4
+        with:
+          files: lcov.info
+          fail_ci_if_error: false
+        env:
+          CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
+
+  # ==========================================================================
+  # Benchmarks (smoke-run to catch regressions / build breakage)
+  # ==========================================================================
+  benchmarks:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Run benchmarks (quick)
+        run: cargo bench --features full -- --warm-up-time 1 --measurement-time 3
+
+  # ==========================================================================
+  # YARA integration (optional feature; needs protoc to build yara-x)
+  # ==========================================================================
+  yara:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+
+      - name: Install protoc
+        uses: arduino/setup-protoc@v3
+        with:
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Clippy (yara)
+        run: cargo clippy --features "cli,yara" -- -D warnings
+
+      - name: Test (yara)
+        run: cargo test --features "cli,yara"
+
+  # ==========================================================================
+  # Optional surfaces: HTTP daemon and online reputation
+  # ==========================================================================
+  optional-features:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+
+      - name: Clippy (server)
+        run: cargo clippy --features server -- -D warnings
+
+      - name: Test (server)
+        run: cargo test --features server
+
+      - name: Clippy (online)
+        run: cargo clippy --features "cli,online" -- -D warnings
+
+      - name: Test (online, offline parsing only)
+        run: cargo test --features "cli,online" reputation
+
+  # ==========================================================================
+  # C ABI bindings (separate crate)
+  # ==========================================================================
+  capi:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+      - name: Build + test C API
+        working-directory: capi
+        run: |
+          cargo clippy -- -D warnings
+          cargo test
+          cargo build --release
+
+  # ==========================================================================
+  # WebAssembly bindings (wasm32 build)
+  # ==========================================================================
+  wasm:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+      - name: Build core for wasm32
+        run: cargo build --target wasm32-unknown-unknown --no-default-features
+      - name: Build wasm bindings
+        working-directory: wasm
+        run: cargo build --target wasm32-unknown-unknown --release
+
+  # ==========================================================================
+  # Fuzzing (nightly schedule + manual; bounded run on PRs touching parsers)
+  # ==========================================================================
+  fuzz:
+    runs-on: ubuntu-latest
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    strategy:
+      fail-fast: false
+      matrix:
+        target: [fuzz_detect, fuzz_archive, fuzz_entropy, fuzz_binary]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install nightly Rust
+        uses: dtolnay/rust-toolchain@nightly
+
+      - name: Install cargo-fuzz
+        uses: taiki-e/install-action@cargo-fuzz
+
+      - name: Run fuzz target
+        run: cargo fuzz run ${{ matrix.target }} -- -max_total_time=120 -rss_limit_mb=4096
+
+      - name: Upload crash artifacts
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: fuzz-artifacts-${{ matrix.target }}
+          path: fuzz/artifacts/
 
   # ==========================================================================
   # Release builds
@@ -191,11 +369,11 @@ jobs:
 
       - name: Build release binary (Native)
         if: "!contains(matrix.target, 'aarch64-unknown-linux') && !contains(matrix.target, 'armv7') && !contains(matrix.target, 'riscv64') && !contains(matrix.target, 'i686-unknown-linux') && !contains(matrix.target, 'freebsd')"
-        run: cargo build --release --target ${{ matrix.target }} --all-features
+        run: cargo build --release --target ${{ matrix.target }} --features full
 
       - name: Build release binary (Cross)
         if: contains(matrix.target, 'aarch64-unknown-linux') || contains(matrix.target, 'armv7') || contains(matrix.target, 'riscv64') || contains(matrix.target, 'i686-unknown-linux') || contains(matrix.target, 'freebsd')
-        run: cross build --release --target ${{ matrix.target }} --all-features
+        run: cross build --release --target ${{ matrix.target }} --features full
 
       - name: Rename binary (Unix)
         if: runner.os != 'Windows'
@@ -238,7 +416,12 @@ jobs:
   docker:
     needs: [test-linux]
     runs-on: ubuntu-latest
-    if: github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/')
+    # Only build/push images for tagged releases, and only when Docker Hub
+    # credentials are configured (steps below no-op otherwise).
+    if: startsWith(github.ref, 'refs/tags/')
+    env:
+      DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
+      DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
     steps:
       - uses: actions/checkout@v4
 
@@ -246,17 +429,18 @@ jobs:
         uses: docker/setup-buildx-action@v3
 
       - name: Login to Docker Hub
-        if: github.event_name != 'pull_request'
+        if: env.DOCKERHUB_USERNAME != ''
         uses: docker/login-action@v3
         with:
-          username: ${{ secrets.DOCKERHUB_USERNAME }}
-          password: ${{ secrets.DOCKERHUB_TOKEN }}
+          username: ${{ env.DOCKERHUB_USERNAME }}
+          password: ${{ env.DOCKERHUB_TOKEN }}
 
       - name: Build and push
+        if: env.DOCKERHUB_USERNAME != ''
         uses: docker/build-push-action@v5
         with:
           context: .
-          push: ${{ github.event_name != 'pull_request' }}
+          push: true
           tags: |
             ahmeddwalid/batin:latest
             ahmeddwalid/batin:${{ github.ref_name }}

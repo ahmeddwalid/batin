@@ -12,7 +12,13 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     ca-certificates \
     && rm -rf /var/lib/apt/lists/*
 
-COPY --from=builder /app/target/release/Batin /usr/local/bin/
+# Run as an unprivileged user
+RUN useradd --create-home --uid 10001 batin
 
-ENTRYPOINT ["Batin"]
+COPY --from=builder /app/target/release/batin /usr/local/bin/batin
+
+USER batin
+WORKDIR /scan
+
+ENTRYPOINT ["batin"]
 CMD ["--help"]

@@ -3,6 +3,15 @@ name: Release Automation
 on:
   release:
     types: [published]
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Version to update packaging to (without leading v)"
+        required: true
+
+permissions:
+  contents: write
+  pull-requests: write
 
 jobs:
   update-packages:
@@ -12,22 +21,92 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Get release info
+      - name: Resolve version
         id: release
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          INPUT_VERSION: ${{ github.event.inputs.version }}
         run: |
-          echo "version=${GITHUB_REF#refs/tags/v}" >> $GITHUB_OUTPUT
-          echo "tag=${GITHUB_REF#refs/tags/}" >> $GITHUB_OUTPUT
+          if [ "$EVENT_NAME" = "workflow_dispatch" ]; then
+            version="$INPUT_VERSION"
+          else
+            version="${GITHUB_REF#refs/tags/v}"
+          fi
+          # Validate: digits and dots only (e.g. 1.2.3), reject anything else.
+          if ! printf '%s' "$version" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+$'; then
+            echo "::error::Invalid version format: '$version'"
+            exit 1
+          fi
+          echo "version=${version}" >> "$GITHUB_OUTPUT"
+          echo "tag=v${version}" >> "$GITHUB_OUTPUT"
 
-      - name: Update Homebrew Formula
+      - name: Wait for release binaries and download checksums
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          # This step would typically use a custom script or action to update the formula
-          # For now we just log the action
-          echo "Updating Homebrew formula for version ${{ steps.release.outputs.version }}"
-          
-      - name: Update AUR Package
-        run: |
-          echo "Updating AUR package for version ${{ steps.release.outputs.version }}"
+          set -euo pipefail
+          tag="${{ steps.release.outputs.tag }}"
+          mkdir -p assets
+          required=(
+            batin-linux-x86_64
+            batin-linux-aarch64
+            batin-macos-x86_64
+            batin-macos-aarch64
+          )
 
-      - name: Update COPR Spec
+          # The CI release job uploads the binaries + .sha256 files asynchronously.
+          # Poll until every required checksum asset is available (up to ~20 min).
+          for attempt in $(seq 1 40); do
+            missing=0
+            for name in "${required[@]}"; do
+              if [ ! -f "assets/${name}.sha256" ]; then
+                gh release download "$tag" --repo "$GITHUB_REPOSITORY" \
+                  --pattern "${name}.sha256" --dir assets --clobber 2>/dev/null || missing=1
+              fi
+            done
+            still_missing=0
+            for name in "${required[@]}"; do
+              [ -f "assets/${name}.sha256" ] || still_missing=1
+            done
+            if [ "$still_missing" -eq 0 ]; then
+              echo "All checksum assets present."
+              break
+            fi
+            echo "Waiting for release assets (attempt ${attempt})..."
+            sleep 30
+          done
+
+          for name in "${required[@]}"; do
+            if [ ! -f "assets/${name}.sha256" ]; then
+              echo "::error::Timed out waiting for ${name}.sha256 on release ${tag}"
+              exit 1
+            fi
+          done
+
+      - name: Update packaging manifests
         run: |
-          echo "Updating COPR spec for version ${{ steps.release.outputs.version }}"
+          chmod +x packaging/scripts/update-release-metadata.sh
+          ./packaging/scripts/update-release-metadata.sh "${{ steps.release.outputs.version }}" "$PWD/assets"
+
+      - name: Open pull request with packaging updates
+        uses: peter-evans/create-pull-request@v6
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          branch: "packaging/${{ steps.release.outputs.tag }}"
+          base: main
+          commit-message: "chore(release): update packaging manifests for ${{ steps.release.outputs.tag }}"
+          title: "chore(release): packaging for ${{ steps.release.outputs.tag }}"
+          body: |
+            Automated packaging update for **${{ steps.release.outputs.tag }}**.
+
+            - Homebrew formula version + per-platform `sha256`
+            - AUR `PKGBUILD` + `.SRCINFO` (`pkgver`, source `sha256`)
+            - RPM spec `Version` + changelog entry
+
+            Checksums sourced from the release binary assets; source-tarball
+            checksum computed from the GitHub archive.
+          add-paths: |
+            Formula/batin.rb
+            packaging/aur/PKGBUILD
+            packaging/aur/.SRCINFO
+            packaging/rpm/batin.spec

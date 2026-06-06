@@ -1,5 +1,5 @@
 [package]
-name = "secfile-detect-fuzz"
+name = "batin-fuzz"
 version = "0.0.0"
 publish = false
 edition = "2021"
@@ -9,10 +9,28 @@ cargo-fuzz = true
 
 [dependencies]
 libfuzzer-sys = "0.4"
-secfile-detect = { path = ".." }
+batin = { path = "..", features = ["binary-parsing", "archive", "hashing"] }
 
 [[bin]]
 name = "fuzz_detect"
 path = "fuzz_targets/fuzz_detect.rs"
+test = false
+doc = false
+
+[[bin]]
+name = "fuzz_archive"
+path = "fuzz_targets/fuzz_archive.rs"
+test = false
+doc = false
+
+[[bin]]
+name = "fuzz_entropy"
+path = "fuzz_targets/fuzz_entropy.rs"
+test = false
+doc = false
+
+[[bin]]
+name = "fuzz_binary"
+path = "fuzz_targets/fuzz_binary.rs"
 test = false
 doc = false
