@@ -3,7 +3,16 @@
 [advisories]
 version = 2
 yanked = "deny"
-ignore = []
+ignore = [
+    # rsa Marvin timing side-channel. Pulled only by the optional yara-x
+    # dependency (yara feature); not present in the default build, has no
+    # upstream fix, and batin never performs RSA operations.
+    "RUSTSEC-2023-0071",
+    # bincode is flagged unmaintained. Transitive via yara-x only.
+    "RUSTSEC-2025-0141",
+    # number_prefix is flagged unmaintained. Transitive via indicatif (CLI).
+    "RUSTSEC-2025-0119",
+]
 
 [licenses]
 version = 2

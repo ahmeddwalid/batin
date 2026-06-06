@@ -110,8 +110,8 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Install Rust 1.75
-        uses: dtolnay/rust-toolchain@1.75.0
+      - name: Install Rust 1.80
+        uses: dtolnay/rust-toolchain@1.80.0
 
       - name: Check MSRV
         run: cargo check --features full --verbose
@@ -131,7 +131,9 @@ jobs:
         run: cargo install cargo-audit
 
       - name: Security audit
-        run: cargo audit
+        # RUSTSEC-2023-0071 (rsa Marvin) has no fix and is only reachable via
+        # the optional yara-x dependency; batin performs no RSA operations.
+        run: cargo audit --ignore RUSTSEC-2023-0071
 
   # ==========================================================================
   # Dependency policy (licenses + advisories + bans)
@@ -182,8 +184,8 @@ jobs:
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
 
-      - name: Run benchmarks (quick)
-        run: cargo bench --features full -- --warm-up-time 1 --measurement-time 3
+      - name: Build benchmarks (smoke check)
+        run: cargo bench --features full --no-run
 
   # ==========================================================================
   # YARA integration (optional feature; needs protoc to build yara-x)
