@@ -302,7 +302,10 @@ jobs:
     needs: [test-linux, test-macos, test-windows, msrv]
     runs-on: ${{ matrix.os }}
     if: startsWith(github.ref, 'refs/tags/')
+    permissions:
+      contents: write
     strategy:
+      fail-fast: false
       matrix:
         include:
           # Linux
