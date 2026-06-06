@@ -2,7 +2,7 @@
 name = "batin"
 version = "0.1.0"
 edition = "2021"
-rust-version = "1.80"
+rust-version = "1.88"
 authors = ["Ahmed Walid <devahmedwalid@proton.me>"]
 license = "GPL-3.0-only"
 description = "Security-hardened file type detection with entropy analysis for cybersecurity applications"

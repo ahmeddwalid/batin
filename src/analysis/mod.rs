@@ -2,9 +2,9 @@
 //!
 //! File structure analysis and validation.
 //!
-//! - [`pe_parser`] - PE/ELF binary parsing
-//! - [`validation`] - Content structure validation
-//! - [`forensics`] - File fragment classification
+//! - `pe_parser` - PE/ELF binary parsing
+//! - `validation` - Content structure validation
+//! - `forensics` - File fragment classification
 
 pub mod forensics;
 pub mod pe_parser;

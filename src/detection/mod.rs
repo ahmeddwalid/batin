@@ -2,10 +2,10 @@
 //!
 //! Core file type detection functionality.
 //!
-//! - [`signatures`] - Magic byte database and signature matching
-//! - [`entropy`] - Shannon entropy analysis
-//! - [`polyglot`] - Multi-format polyglot detection
-//! - [`embedded`] - Embedded threat scanning
+//! - `signatures` - Magic byte database and signature matching
+//! - `entropy` - Shannon entropy analysis
+//! - `polyglot` - Multi-format polyglot detection
+//! - `embedded` - Embedded threat scanning
 
 pub mod detector;
 pub mod embedded;

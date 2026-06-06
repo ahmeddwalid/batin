@@ -41,9 +41,9 @@
 //!
 //! ## Module Organization
 //!
-//! - [`detection`] - Core file type detection (signatures, entropy, polyglot, embedded)
-//! - [`analysis`] - File structure analysis (PE parsing, validation, forensics)
-//! - [`io`] - I/O operations (archive scanning, batch processing, hashing)
+//! - `detection` - Core file type detection (signatures, entropy, polyglot, embedded)
+//! - `analysis` - File structure analysis (PE parsing, validation, forensics)
+//! - `io` - I/O operations (archive scanning, batch processing, hashing)
 
 #[cfg(feature = "async")]
 use std::path::Path;
@@ -154,7 +154,7 @@ const MAX_ENTROPY_BITS: f64 = 8.0;
 impl DetectionConfig {
     /// Validate the configuration, rejecting nonsensical or out-of-range values.
     ///
-    /// Returns [`DetectionError::InvalidConfig`] describing the first problem found.
+    /// Returns `DetectionError::InvalidConfig` describing the first problem found.
     pub fn validate(&self) -> Result<()> {
         if self.max_read_bytes == 0 {
             return Err(DetectionError::InvalidConfig(

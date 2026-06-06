@@ -2,9 +2,9 @@
 //!
 //! File I/O operations and batch processing.
 //!
-//! - [`archive`] - ZIP/TAR archive scanning
-//! - [`batch`] - Parallel batch processing
-//! - [`hasher`] - Hash calculation (MD5, SHA-256, SHA-512)
+//! - `archive` - ZIP/TAR archive scanning
+//! - `batch` - Parallel batch processing
+//! - `hasher` - Hash calculation (MD5, SHA-256, SHA-512)
 
 pub mod archive;
 #[cfg(feature = "async")]

@@ -110,14 +110,13 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Install Rust 1.80
-        uses: dtolnay/rust-toolchain@1.80.0
+      - name: Install Rust 1.88
+        uses: dtolnay/rust-toolchain@1.88.0
 
       - name: Check MSRV
+        # check (not test) so dev-only deps with newer MSRVs do not affect the
+        # library/binary MSRV guarantee.
         run: cargo check --features full --verbose
-
-      - name: Test on MSRV
-        run: cargo test --features full --verbose
 
   # ==========================================================================
   # Security Audit
