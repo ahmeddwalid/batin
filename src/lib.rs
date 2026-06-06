@@ -582,10 +582,10 @@ fn detect_text_type(
 
     // Check for specific text formats by content patterns
     // JSON
-    if trimmed.starts_with('{') || trimmed.starts_with('[') {
-        if content.contains("\":") || content.contains("\": ") {
-            return ("json", "application/json", 0.9);
-        }
+    if (trimmed.starts_with('{') || trimmed.starts_with('['))
+        && (content.contains("\":") || content.contains("\": "))
+    {
+        return ("json", "application/json", 0.9);
     }
 
     // HTML
@@ -617,10 +617,12 @@ fn detect_text_type(
     }
 
     // YAML
-    if content.contains(":\n") && (content.contains("  ") || content.contains("\n- ")) {
-        if !content.contains('{') && !content.contains('[') {
-            return ("yaml", "application/x-yaml", 0.7);
-        }
+    if content.contains(":\n")
+        && (content.contains("  ") || content.contains("\n- "))
+        && !content.contains('{')
+        && !content.contains('[')
+    {
+        return ("yaml", "application/x-yaml", 0.7);
     }
 
     // Shell script
@@ -633,14 +635,13 @@ fn detect_text_type(
     }
 
     // Python script
-    if trimmed.starts_with("#!/usr/bin/env python")
+    if (trimmed.starts_with("#!/usr/bin/env python")
         || trimmed.starts_with("#!/usr/bin/python")
         || (content.contains("def ") && content.contains(":"))
-        || content.contains("import ")
+        || content.contains("import "))
+        && declared_ext.as_deref() == Some("py")
     {
-        if declared_ext.as_deref() == Some("py") {
-            return ("py", "text/x-python", 0.85);
-        }
+        return ("py", "text/x-python", 0.85);
     }
 
     // CSS
@@ -674,10 +675,12 @@ fn detect_text_type(
     }
 
     // TOML
-    if content.contains("[") && content.contains("]\n") && content.contains(" = ") {
-        if declared_ext.as_deref() == Some("toml") {
-            return ("toml", "application/toml", 0.8);
-        }
+    if content.contains("[")
+        && content.contains("]\n")
+        && content.contains(" = ")
+        && declared_ext.as_deref() == Some("toml")
+    {
+        return ("toml", "application/toml", 0.8);
     }
 
     // CSV (basic detection)

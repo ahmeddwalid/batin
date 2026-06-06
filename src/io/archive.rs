@@ -182,6 +182,7 @@ fn scan_dispatch(
 
 /// Recurse into an extracted entry if it is itself a supported archive.
 #[cfg(feature = "archive")]
+#[allow(clippy::too_many_arguments)]
 fn maybe_recurse_entry(
     contents: &[u8],
     parent_path: &str,
@@ -396,9 +397,8 @@ fn scan_tar(
     })?;
 
     let mut entries = Vec::new();
-    let mut processed = 0usize;
 
-    for entry in tar_entries {
+    for (processed, entry) in tar_entries.enumerate() {
         if processed >= ac.max_entries {
             log::warn!(
                 "TAR has more than {} entries, stopping early",
@@ -406,7 +406,6 @@ fn scan_tar(
             );
             break;
         }
-        processed += 1;
 
         let mut entry = match entry {
             Ok(e) => e,

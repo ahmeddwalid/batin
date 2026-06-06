@@ -21,7 +21,7 @@
 </p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/Rust-1.75%2B-orange?style=for-the-badge&logo=rust" alt="Rust 1.75+"/>
+  <img src="https://img.shields.io/badge/Rust-1.80%2B-orange?style=for-the-badge&logo=rust" alt="Rust 1.80+"/>
   <img src="https://img.shields.io/badge/License-GPLv3-blue?style=for-the-badge" alt="License"/>
   <img src="https://img.shields.io/badge/unsafe-forbidden-success?style=for-the-badge" alt="Unsafe Forbidden"/>
   <img src="https://img.shields.io/badge/Fuzz%20Tested-✓-brightgreen?style=for-the-badge" alt="Fuzz Tested"/>

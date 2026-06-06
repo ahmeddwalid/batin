@@ -57,7 +57,7 @@ pub fn validate_pdf(data: &[u8]) -> ValidationResult {
 /// distinct, low-confidence result.
 pub fn validate_png(data: &[u8]) -> ValidationResult {
     // PNG signature: 89 50 4E 47 0D 0A 1A 0A
-    if data.len() < 8 || &data[0..8] != &[0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A] {
+    if data.len() < 8 || data[0..8] != [0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A] {
         return ValidationResult {
             is_valid: false,
             confidence_boost: -0.3,
@@ -144,7 +144,7 @@ pub fn validate_png(data: &[u8]) -> ValidationResult {
 /// Validate ZIP structure
 pub fn validate_zip(data: &[u8]) -> ValidationResult {
     // Check for PK signature
-    if data.len() < 4 || &data[0..4] != &[0x50, 0x4B, 0x03, 0x04] {
+    if data.len() < 4 || data[0..4] != [0x50, 0x4B, 0x03, 0x04] {
         return ValidationResult {
             is_valid: false,
             confidence_boost: -0.3,
@@ -188,14 +188,12 @@ pub fn validate_pe(data: &[u8]) -> ValidationResult {
             u32::from_le_bytes([data[0x3C], data[0x3D], data[0x3E], data[0x3F]]) as usize;
 
         // Check for PE signature
-        if data.len() > pe_offset + 4 {
-            if &data[pe_offset..pe_offset + 4] == b"PE\x00\x00" {
-                return ValidationResult {
-                    is_valid: true,
-                    confidence_boost: 0.15,
-                    details: "Valid PE with MZ and PE signature".to_string(),
-                };
-            }
+        if data.len() > pe_offset + 4 && &data[pe_offset..pe_offset + 4] == b"PE\x00\x00" {
+            return ValidationResult {
+                is_valid: true,
+                confidence_boost: 0.15,
+                details: "Valid PE with MZ and PE signature".to_string(),
+            };
         }
     }
 

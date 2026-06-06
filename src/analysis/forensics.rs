@@ -22,9 +22,9 @@ pub fn classify_fragment(fragment: &[u8]) -> Result<FragmentClassification> {
 
     let (likely_type, confidence) = match entropy {
         e if e < 3.0 => ("binary_zeros", 0.9),
-        e if e >= 3.0 && e < 5.0 => ("text", 0.7),
-        e if e >= 5.0 && e < 6.5 => ("native_code", 0.6),
-        e if e >= 6.5 && e < 7.5 => ("compressed", 0.7),
+        e if (3.0..5.0).contains(&e) => ("text", 0.7),
+        e if (5.0..6.5).contains(&e) => ("native_code", 0.6),
+        e if (6.5..7.5).contains(&e) => ("compressed", 0.7),
         _ => ("encrypted", 0.8),
     };
 

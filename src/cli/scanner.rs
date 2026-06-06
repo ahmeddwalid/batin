@@ -524,7 +524,7 @@ fn generate_csv(results: &[ScanResult]) -> anyhow::Result<String> {
     let mut wtr = csv::Writer::from_writer(Vec::new());
 
     // Write header
-    wtr.write_record(&[
+    wtr.write_record([
         "Path",
         "Type",
         "MIME",
@@ -589,7 +589,7 @@ fn generate_csv(results: &[ScanResult]) -> anyhow::Result<String> {
             .map(|h| h.sha256.clone())
             .unwrap_or_default();
 
-        wtr.write_record(&[
+        wtr.write_record([
             &res.path,
             &res.file_type.extension,
             &res.file_type.mime_type,

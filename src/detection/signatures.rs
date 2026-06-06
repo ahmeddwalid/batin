@@ -21,6 +21,7 @@ pub struct FileSignature {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Deserialize)]
 #[serde(rename_all = "lowercase")]
+#[derive(Default)]
 pub enum FileCategory {
     Image,
     Document,
@@ -28,13 +29,8 @@ pub enum FileCategory {
     Executable,
     Multimedia,
     Text,
+    #[default]
     Unknown,
-}
-
-impl Default for FileCategory {
-    fn default() -> Self {
-        Self::Unknown
-    }
 }
 
 /// User-supplied signature specification, deserialized from JSON.
@@ -718,12 +714,12 @@ impl SignatureDatabase {
                 if data.len() >= sig.offset + sig.magic_bytes.len() {
                     // For RIFF-based formats, compare with wildcards at bytes 4-7 (file size field)
                     if sig.magic_bytes.len() == 12
-                        && &sig.magic_bytes[0..4] == &[0x52, 0x49, 0x46, 0x46]
+                        && sig.magic_bytes[0..4] == [0x52, 0x49, 0x46, 0x46]
                     {
                         // Check RIFF prefix and format identifier (bytes 8-11)
-                        let riff_match = &data[0..4] == &sig.magic_bytes[0..4]
+                        let riff_match = data[0..4] == sig.magic_bytes[0..4]
                             && data.len() >= 12
-                            && &data[8..12] == &sig.magic_bytes[8..12];
+                            && data[8..12] == sig.magic_bytes[8..12];
                         if riff_match {
                             return Some((idx, 1.0));
                         }
@@ -741,12 +737,10 @@ impl SignatureDatabase {
 
         // Check for ISO Base Media Format (MP4, M4A, MOV, HEIC, AVIF, etc.)
         // These have 'ftyp' at offset 4 with variable size prefix
-        if matches.is_empty() && data.len() >= 8 {
-            if &data[4..8] == b"ftyp" {
-                // Found ftyp atom - detect specific format from brand
-                if let Some((idx, _mime, _ext)) = self.detect_iso_base_media_format(data) {
-                    matches.push((idx, 1.0));
-                }
+        if matches.is_empty() && data.len() >= 8 && &data[4..8] == b"ftyp" {
+            // Found ftyp atom - detect specific format from brand
+            if let Some((idx, _mime, _ext)) = self.detect_iso_base_media_format(data) {
+                matches.push((idx, 1.0));
             }
         }
 
@@ -787,7 +781,9 @@ impl SignatureDatabase {
         // Find matching signature index for the extension
         for (idx, sig) in self.signatures.iter().enumerate() {
             if sig.extensions.iter().any(|e| e == ext)
-                && sig.mime_type.contains(mime.split('/').last().unwrap_or(""))
+                && sig
+                    .mime_type
+                    .contains(mime.split('/').next_back().unwrap_or(""))
             {
                 return Some((idx, mime, ext));
             }
@@ -806,7 +802,7 @@ impl SignatureDatabase {
     /// Detect specific format for ZIP-based files by inspecting internal structure
     pub fn detect_zip_format(&self, data: &[u8]) -> Option<&'static str> {
         // Check for ZIP signature first
-        if data.len() < 4 || &data[0..4] != &[0x50, 0x4B, 0x03, 0x04] {
+        if data.len() < 4 || data[0..4] != [0x50, 0x4B, 0x03, 0x04] {
             return None;
         }
 
