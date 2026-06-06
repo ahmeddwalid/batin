@@ -1,4 +1,3 @@
-
 # Batin
 
 ### Security-Hardened File Type Detection in Rust
@@ -86,12 +85,17 @@ Batin detects:
 | **50+ File Formats**         | Detects Office (DOCX, ODF, RTF), Media (Images, Audio, Video), Dev (Class, Pyc, Wasm), Containers (Docker, ISO), Archives (TAR, XZ, ZST), and Executables |
 | **Shannon Entropy Analysis** | Calculates file randomness (0.0-8.0 bits/byte) to detect packed code, encryption, and compression                                                         |
 | **Sliding Window Entropy**   | Generates entropy graphs to find small encrypted payloads hidden in larger files                                                                          |
-| **Polyglot Detection**       | Identifies files interpretable as multiple formats—common malware evasion technique                                                                       |
+| **Polyglot Detection**       | Identifies files interpretable as multiple formats, a common malware evasion technique                                                                    |
 | **Extension Validation**     | Compares declared extensions against true content to prevent spoofing attacks                                                                             |
-| **Embedded Threat Scanning** | Detects Office macros, PDF JavaScript, and executables hidden in archives                                                                                 |
+| **Embedded Threat Scanning** | Detects Office macros, PDF auto-actions/JavaScript, base64/XOR-encoded payloads, and executables hidden in archives                                        |
+| **Custom Signatures & YARA** | Load your own JSON signatures at runtime; optional YARA rule scanning via pure-Rust `yara-x`                                                               |
+| **Structural Validation**    | Verifies structure beyond magic bytes (e.g. PNG chunk CRCs) to catch tampering                                                                            |
+| **Recursive Archives**       | Scans nested ZIP/TAR/tar.gz with configurable bomb/size/depth limits                                                                                      |
+| **Report Formats**           | Table, JSON, NDJSON, CSV, SARIF (code-scanning), and self-contained HTML                                                                                  |
+| **Embeddable Anywhere**      | Rust library, `batin serve` HTTP daemon, C ABI (FFI), and WebAssembly bindings                                                                            |
 | **Fragment Classification**  | Identifies partial files without headers using statistical analysis                                                                                       |
-| **Zero Unsafe Code**         | Built entirely with safe Rust using `RwLock` and `LazyLock`                                                                                               |
-| **Async & Parallel**         | Tokio for I/O, Rayon for CPU-bound entropy calculations                                                                                                   |
+| **Zero Unsafe Code**         | Core is `#![forbid(unsafe_code)]`; the only `unsafe` is the documented C-ABI shim                                                                          |
+| **Async & Parallel**         | Tokio for I/O, Rayon for CPU-bound work (optional `async` feature; core builds for wasm without it)                                                        |
 | **Fuzz Tested**              | Cargo-fuzz integration guarantees no panics on malformed input                                                                                            |
 
 <p align="right">(<a href="#top">back to top</a>)</p>
@@ -106,10 +110,10 @@ Batin supports the following platforms and architectures:
 
 | Platform    | x86_64 | x86_32 | ARM64 | ARMv7 | RISC-V |
 | ----------- |:------:|:------:|:-----:|:-----:|:------:|
-| **Linux**   | ✅     | ✅     | ✅    | ✅    | ✅     |
-| **Windows** | ✅     | ✅     | ✅    | ❌    | ❌     |
-| **macOS**   | ✅     | ❌     | ✅    | ❌    | ❌     |
-| **FreeBSD** | ✅     | ❌     | ❌    | ❌    | ❌     |
+| **Linux**   | ✅      | ✅      | ✅     | ✅     | ✅      |
+| **Windows** | ✅      | ✅      | ✅     | ❌     | ❌      |
+| **macOS**   | ✅      | ❌      | ✅     | ❌     | ❌      |
+| **FreeBSD** | ✅      | ❌      | ❌     | ❌     | ❌      |
 
 ### Building from Source
 
@@ -272,11 +276,7 @@ cargo install cargo-fuzz cargo-tarpaulin
 
 # Run full test suite
 cargo test --all-features
-cargo clippy --all-targets --all-features
-cargo fmt --check
 
-# Run fuzzer (Ctrl+C to stop)
-cargo fuzz run fuzz_detect
 ```
 
 ### Code of Conduct
