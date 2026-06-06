@@ -1,5 +1,5 @@
 Name:           batin
-Version:        0.2.0
+Version:        0.1.0
 Release:        1%{?dist}
 Summary:        Security-hardened file type detection with entropy analysis
 
@@ -32,5 +32,5 @@ install -D -m 755 target/release/batin $RPM_BUILD_ROOT%{_bindir}/batin
 %{_bindir}/batin
 
 %changelog
-* Sat Dec 06 2025 Ahmed Walid <devahmedwalid@proton.me> - 0.2.0-1
+* Sat Dec 06 2025 Ahmed Walid <devahmedwalid@proton.me> - 0.1.0-1
 - Initial package release

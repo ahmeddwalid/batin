@@ -1,7 +1,7 @@
 class Batin < Formula
   desc "Security-hardened file type detection using magic bytes, entropy, and threat analysis"
   homepage "https://github.com/ahmeddwalid/batin"
-  version "0.2.0"
+  version "0.1.0"
   license "GPL-3.0-only"
 
   if OS.mac?
