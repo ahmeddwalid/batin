@@ -34,7 +34,7 @@
 </p>
 
 <p align="center">
-  <a href="https://ahmeddwalid.github.io/batin/"><strong>Explore the docs »</strong></a>
+  <a href="https://batin.ahmeddwalid.me"><strong>Explore the docs »</strong></a>
 </p>
 
 </div>
