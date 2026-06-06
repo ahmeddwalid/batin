@@ -1,0 +1,271 @@
+/**
+ * Custom CSS for Batin Documentation
+ * Includes RTL support for Arabic locale
+ */
+
+/* Color scheme */
+:root {
+  --ifm-color-primary: #2e8555;
+  --ifm-color-primary-dark: #29784c;
+  --ifm-color-primary-darker: #277148;
+  --ifm-color-primary-darkest: #205d3b;
+  --ifm-color-primary-light: #33925d;
+  --ifm-color-primary-lighter: #359962;
+  --ifm-color-primary-lightest: #3cad6e;
+  --ifm-code-font-size: 95%;
+  --docusaurus-highlighted-code-line-bg: rgba(0, 0, 0, 0.1);
+}
+
+/* Dark mode colors */
+[data-theme='dark'] {
+  --ifm-color-primary: #25c2a0;
+  --ifm-color-primary-dark: #21af90;
+  --ifm-color-primary-darker: #1fa588;
+  --ifm-color-primary-darkest: #1a8870;
+  --ifm-color-primary-light: #29d5b0;
+  --ifm-color-primary-lighter: #32d8b4;
+  --ifm-color-primary-lightest: #4fddbf;
+  --docusaurus-highlighted-code-line-bg: rgba(0, 0, 0, 0.3);
+}
+
+/* RTL Support for Arabic */
+html[dir='rtl'] {
+  --ifm-paragraph-margin-bottom: 1rem;
+}
+
+html[dir='rtl'] .navbar__items {
+  flex-direction: row-reverse;
+}
+
+html[dir='rtl'] .navbar__brand {
+  margin-left: 1rem;
+  margin-right: 0;
+}
+
+html[dir='rtl'] .menu__link {
+  padding-right: var(--ifm-menu-link-padding-horizontal);
+  padding-left: calc(var(--ifm-menu-link-padding-horizontal) + var(--ifm-menu-link-sublist-icon-width));
+}
+
+html[dir='rtl'] .menu__list-item-collapsible .menu__link--sublist::after {
+  right: auto;
+  left: 0.5rem;
+  transform: rotate(180deg);
+}
+
+html[dir='rtl'] .menu__list-item-collapsible--active .menu__link--sublist::after {
+  transform: rotate(90deg);
+}
+
+html[dir='rtl'] .menu__list .menu__list {
+  padding-left: 0;
+  padding-right: var(--ifm-menu-link-padding-horizontal);
+}
+
+html[dir='rtl'] .table-of-contents {
+  padding-left: 0;
+  padding-right: 0.5rem;
+}
+
+html[dir='rtl'] .table-of-contents ul {
+  padding-left: 0;
+  padding-right: 1rem;
+}
+
+/* Code blocks */
+.docusaurus-highlight-code-line {
+  background-color: rgba(0, 0, 0, 0.1);
+  display: block;
+  margin: 0 calc(-1 * var(--ifm-pre-padding));
+  padding: 0 var(--ifm-pre-padding);
+}
+
+[data-theme='dark'] .docusaurus-highlight-code-line {
+  background-color: rgba(0, 0, 0, 0.3);
+}
+
+/* Mermaid diagram styling */
+.mermaid {
+  background: transparent !important;
+}
+
+[data-theme='dark'] .mermaid {
+  filter: invert(0);
+}
+
+/* Admonition styling */
+.admonition {
+  border-radius: 8px;
+}
+
+/* Hero section */
+.hero {
+  background: linear-gradient(135deg, #1a1a2e 0%, #16213e 50%, #0f3460 100%);
+  color: white;
+}
+
+.hero__title {
+  font-size: 3rem;
+  font-weight: 700;
+}
+
+.hero__subtitle {
+  font-size: 1.5rem;
+  opacity: 0.9;
+}
+
+/* Feature cards */
+.feature-card {
+  background: var(--ifm-card-background-color);
+  border-radius: 8px;
+  padding: 1.5rem;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+  transition: transform 0.2s, box-shadow 0.2s;
+}
+
+.feature-card:hover {
+  transform: translateY(-4px);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.2);
+}
+
+/* Terminal-like styling for code examples */
+.terminal {
+  background: #1e1e1e;
+  border-radius: 8px;
+  padding: 1rem;
+  font-family: 'Fira Code', 'JetBrains Mono', monospace;
+}
+
+.terminal::before {
+  content: '$ ';
+  color: #25c2a0;
+}
+
+/* Threat level badges */
+.threat-safe {
+  color: #25c2a0;
+  font-weight: bold;
+}
+
+.threat-suspicious {
+  color: #ffa500;
+  font-weight: bold;
+}
+
+.threat-dangerous {
+  color: #ff6b6b;
+  font-weight: bold;
+}
+
+.threat-critical {
+  color: #ff0000;
+  font-weight: bold;
+}
+
+/* Arabic-specific typography */
+html[lang='ar'] {
+  font-family: 'IBM Plex Sans Arabic', 'Noto Sans Arabic', sans-serif;
+}
+
+/* ========================================
+   FORCE LTR FOR CODE BLOCKS IN RTL PAGES
+   ======================================== */
+
+/* Target the main code block wrapper - use unicode-bidi: isolate-override */
+html[dir='rtl'] pre,
+html[dir='rtl'] code,
+html[lang='ar'] pre,
+html[lang='ar'] code {
+  direction: ltr !important;
+  text-align: left !important;
+  unicode-bidi: isolate-override !important;
+}
+
+/* Target Docusaurus-specific code block classes */
+html[dir='rtl'] div[class*="codeBlock"],
+html[dir='rtl'] div[class*="codeBlockContent"],
+html[dir='rtl'] div[class*="codeBlockLines"],
+html[dir='rtl'] .theme-code-block,
+html[dir='rtl'] .prism-code,
+html[lang='ar'] div[class*="codeBlock"],
+html[lang='ar'] div[class*="codeBlockContent"],
+html[lang='ar'] div[class*="codeBlockLines"],
+html[lang='ar'] .theme-code-block,
+html[lang='ar'] .prism-code {
+  direction: ltr !important;
+  text-align: left !important;
+  unicode-bidi: isolate-override !important;
+}
+
+/* Ensure all children of code blocks are LTR */
+html[dir='rtl'] pre *,
+html[dir='rtl'] code *,
+html[dir='rtl'] .theme-code-block *,
+html[dir='rtl'] div[class*="codeBlock"] *,
+html[lang='ar'] pre *,
+html[lang='ar'] code *,
+html[lang='ar'] .theme-code-block *,
+html[lang='ar'] div[class*="codeBlock"] * {
+  direction: ltr !important;
+  text-align: left !important;
+}
+
+/* Fix the token spans in code blocks */
+html[dir='rtl'] .token,
+html[dir='rtl'] span[class*="token"],
+html[lang='ar'] .token,
+html[lang='ar'] span[class*="token"] {
+  direction: ltr !important;
+  unicode-bidi: embed !important;
+}
+
+/* Line numbers should also be LTR */
+html[dir='rtl'] div[class*="codeBlockLines"] span[class*="codeBlockLinesContent"],
+html[dir='rtl'] .line-number,
+html[lang='ar'] div[class*="codeBlockLines"] span[class*="codeBlockLinesContent"],
+html[lang='ar'] .line-number {
+  direction: ltr !important;
+  text-align: right !important;
+}
+
+/* Ensure inline code is LTR */
+html[dir='rtl'] p code,
+html[dir='rtl'] li code,
+html[dir='rtl'] td code,
+html[dir='rtl'] th code,
+html[dir='rtl'] h1 code,
+html[dir='rtl'] h2 code,
+html[dir='rtl'] h3 code,
+html[lang='ar'] p code,
+html[lang='ar'] li code,
+html[lang='ar'] td code,
+html[lang='ar'] th code {
+  direction: ltr !important;
+  unicode-bidi: isolate-override !important;
+  display: inline-block;
+}
+
+/* Keep Mermaid diagrams LTR */
+html[dir='rtl'] .mermaid,
+html[lang='ar'] .mermaid {
+  direction: ltr !important;
+  unicode-bidi: isolate-override !important;
+}
+
+/* Tables in code documentation should keep LTR for code columns */
+html[dir='rtl'] table code,
+html[lang='ar'] table code {
+  direction: ltr !important;
+  unicode-bidi: isolate-override !important;
+}
+
+/* Responsive adjustments */
+@media screen and (max-width: 996px) {
+  .hero__title {
+    font-size: 2rem;
+  }
+
+  .hero__subtitle {
+    font-size: 1.25rem;
+  }
+}

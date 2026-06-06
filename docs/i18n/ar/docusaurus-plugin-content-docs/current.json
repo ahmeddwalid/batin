@@ -1,0 +1,42 @@
+{
+  "version.label": {
+    "message": "الحالي",
+    "description": "The label for version current"
+  },
+  "sidebar.userSidebar.category.Getting Started": {
+    "message": "البدء السريع",
+    "description": "The label for category 'Getting Started' in sidebar 'userSidebar'"
+  },
+  "sidebar.userSidebar.category.CLI Reference": {
+    "message": "مرجع سطر الأوامر",
+    "description": "The label for category 'CLI Reference' in sidebar 'userSidebar'"
+  },
+  "sidebar.userSidebar.category.Use Cases": {
+    "message": "حالات الاستخدام",
+    "description": "The label for category 'Use Cases' in sidebar 'userSidebar'"
+  },
+  "sidebar.userSidebar.category.Configuration": {
+    "message": "الإعدادات",
+    "description": "The label for category 'Configuration' in sidebar 'userSidebar'"
+  },
+  "sidebar.developerSidebar.category.Architecture": {
+    "message": "البنية",
+    "description": "The label for category 'Architecture' in sidebar 'developerSidebar'"
+  },
+  "sidebar.developerSidebar.category.Core Concepts": {
+    "message": "المفاهيم الأساسية",
+    "description": "The label for category 'Core Concepts' in sidebar 'developerSidebar'"
+  },
+  "sidebar.developerSidebar.category.Module Deep Dives": {
+    "message": "تعمق في الوحدات",
+    "description": "The label for category 'Module Deep Dives' in sidebar 'developerSidebar'"
+  },
+  "sidebar.developerSidebar.category.API Reference": {
+    "message": "مرجع API",
+    "description": "The label for category 'API Reference' in sidebar 'developerSidebar'"
+  },
+  "sidebar.developerSidebar.category.Contributing": {
+    "message": "المساهمة",
+    "description": "The label for category 'Contributing' in sidebar 'developerSidebar'"
+  }
+}

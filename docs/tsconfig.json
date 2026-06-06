@@ -1,0 +1,19 @@
+{
+  "extends": "@docusaurus/tsconfig",
+  "compilerOptions": {
+    "baseUrl": ".",
+    "jsx": "react-jsx",
+    "strict": true,
+    "esModuleInterop": true,
+    "skipLibCheck": true,
+    "forceConsistentCasingInFileNames": true,
+    "resolveJsonModule": true,
+    "moduleResolution": "node"
+  },
+  "include": [
+    "src/**/*",
+    "docs/**/*",
+    "sidebars.ts",
+    "docusaurus.config.ts"
+  ]
+}

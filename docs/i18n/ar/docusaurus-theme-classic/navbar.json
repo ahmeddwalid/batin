@@ -1,0 +1,22 @@
+{
+  "title": {
+    "message": "باطن",
+    "description": "The title in the navbar"
+  },
+  "logo.alt": {
+    "message": "شعار باطن",
+    "description": "The alt text of navbar logo"
+  },
+  "item.label.User Guide": {
+    "message": "دليل المستخدم",
+    "description": "Navbar item with label User Guide"
+  },
+  "item.label.Developer Docs": {
+    "message": "وثائق المطورين",
+    "description": "Navbar item with label Developer Docs"
+  },
+  "item.label.GitHub": {
+    "message": "GitHub",
+    "description": "Navbar item with label GitHub"
+  }
+}
