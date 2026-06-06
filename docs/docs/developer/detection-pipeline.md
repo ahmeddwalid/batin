@@ -6,37 +6,45 @@ description: How the multi-stage detection pipeline works
 
 # Detection Pipeline
 
-Detailed walkthrough of Batin's four-stage detection pipeline.
+Detailed walkthrough of Batin's multi-stage detection pipeline.
 
 ## Overview
 
-Every file analysis passes through four stages:
+Every call to `from_bytes` passes through these stages:
 
 ```mermaid
 flowchart LR
-    subgraph Stage1["Stage 1"]
-        A[Magic Bytes]
-    end
-    
-    subgraph Stage2["Stage 2"]
-        B[Entropy Analysis]
-    end
-    
-    subgraph Stage3["Stage 3"]
-        C[Polyglot Detection]
-    end
-    
-    subgraph Stage4["Stage 4"]
-        D[Threat Scanning]
-    end
-    
-    A --> B --> C --> D --> E[Result]
-    
-    style Stage1 fill:#1a1a2e
-    style Stage2 fill:#16213e
-    style Stage3 fill:#0f3460
-    style Stage4 fill:#25c2a0
+    A[Magic Bytes] --> B[Entropy Analysis]
+    B --> C[Polyglot Detection]
+    C --> D[Threat Assessment]
+    D --> E[Embedded Scan]
+    E --> F[Custom Detectors]
+    F --> G[Result]
+
+    style A fill:#1a1a2e
+    style B fill:#16213e
+    style C fill:#0f3460
+    style D fill:#533483
+    style E fill:#7b2d8e
+    style F fill:#25c2a0
 ```
+
+1. **Magic bytes** match the file against the signature database (built-in plus
+   any user-loaded signatures).
+2. **Entropy analysis** computes Shannon entropy and a chi-square statistic to
+   flag packed or encrypted content.
+3. **Polyglot detection** scans additional offsets for extra format signatures.
+4. **Threat assessment** derives an initial threat level from the format,
+   entropy, and polyglot results.
+5. **Embedded scan** looks for macros, PDF actions, archived executables, and
+   base64 or XOR-encoded payloads.
+6. **Custom detectors** registered through the `Detector` trait run last; the
+   optional YARA integration is one such detector. Their findings, like the
+   built-in embedded findings, can escalate the threat level.
+
+Structural validation (for example PNG chunk CRC-32 checks in
+`analysis::validation`) is available separately for callers that want to verify
+a file's integrity beyond magic bytes.
 
 Each stage can:
 

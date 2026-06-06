@@ -10,7 +10,7 @@ Comprehensive analysis of the `src/detection/polyglot.rs` module.
 
 ## Purpose
 
-Detect files that are **simultaneously valid in multiple formats**—a common attack vector for bypassing security filters.
+Detect files that are **simultaneously valid in multiple formats**, a common attack vector for bypassing security filters.
 
 ## The Threat Model
 

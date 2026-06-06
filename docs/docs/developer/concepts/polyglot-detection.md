@@ -307,7 +307,7 @@ fn is_legitimate_polyglot(formats: &[String]) -> bool {
 
 ### Optimization: Early Exit
 
-If already found 2+ formats, the file is a polyglot—no need to check more offsets.
+If already found 2+ formats, the file is a polyglot, so there is no need to check more offsets.
 
 ```rust
 for offset in check_offsets {

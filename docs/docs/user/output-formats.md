@@ -129,6 +129,76 @@ batin scan /samples -r --csv --output report.csv
 
 ---
 
+## NDJSON Format
+
+Newline-delimited JSON emits one result object per line, which is convenient
+for streaming into log processors or tools like `jq`.
+
+```bash
+batin scan /samples -r --format ndjson
+```
+
+```text
+{"path":"/samples/a.png","file_type":{"extension":"png", ...}}
+{"path":"/samples/b.exe","file_type":{"extension":"exe", ...}}
+```
+
+```bash
+# Count dangerous files with jq
+batin scan /samples -r --format ndjson | jq -c 'select(.file_type.threat_level == "Dangerous")' | wc -l
+```
+
+---
+
+## SARIF Format
+
+SARIF 2.1.0 is understood by code-scanning dashboards, including GitHub code
+scanning. Threat levels map to SARIF result levels: Safe to `note`, Suspicious
+to `warning`, and Dangerous or Critical to `error`.
+
+```bash
+batin scan /uploads -r --format sarif --output batin.sarif
+```
+
+```json
+{
+  "version": "2.1.0",
+  "runs": [
+    {
+      "tool": { "driver": { "name": "batin", "version": "0.1.0" } },
+      "results": [
+        {
+          "ruleId": "batin/dangerous",
+          "level": "error",
+          "message": { "text": "Detected exe (application/x-dosexec), threat: Dangerous" },
+          "locations": [
+            { "physicalLocation": { "artifactLocation": { "uri": "/uploads/packed.exe" } } }
+          ]
+        }
+      ]
+    }
+  ]
+}
+```
+
+You can upload the file in a GitHub Actions workflow with
+`github/codeql-action/upload-sarif`.
+
+---
+
+## HTML Format
+
+A self-contained, styled report suitable for sharing.
+
+```bash
+batin scan /evidence -r --format html --output report.html
+```
+
+The report is a single file with no external assets, listing every file with
+its type, confidence, threat level, entropy, and embedded-threat count.
+
+---
+
 ## Saving Output
 
 ### To File

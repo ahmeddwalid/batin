@@ -48,7 +48,7 @@ VBA macros in Office documents can:
 
 ### Auto-Execute Macros (Critical)
 
-Most dangerous—run automatically when document opens:
+Most dangerous, they run automatically when document opens:
 
 | Macro Name | Trigger |
 |------------|---------|

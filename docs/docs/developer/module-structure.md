@@ -421,19 +421,47 @@ pub fn read_be_u32(data: &[u8], offset: usize) -> Option<u32>
 ```toml
 [features]
 default = ["full"]
-full = ["hashing", "binary-parsing", "archive", "cli"]
+# full excludes yara, server, and online to keep the default build light.
+full = ["async", "hashing", "binary-parsing", "archive", "cli"]
 
-hashing = ["md-5", "sha2"]        # io/hasher.rs
-binary-parsing = ["goblin"]       # analysis/binary.rs
-archive = ["zip", "tar", "flate2"]# io/archive.rs
-cli = ["clap", "colored", ...]    # cli/*
+async = ["tokio", "rayon", "futures"]  # from_file_path, io/batch.rs
+hashing = ["sha2", "md-5"]             # io/hasher.rs
+binary-parsing = ["goblin"]            # analysis/pe_parser.rs
+archive = ["zip", "tar", "flate2"]     # io/archive.rs scanning
+cli = ["clap", "comfy-table", ...]     # the batin binary (implies async, archive, hashing)
+yara = ["yara-x"]                      # detection/yara.rs
+server = ["async", "cli"]              # cli/serve.rs HTTP daemon
+online = ["ureq", "hashing"]           # reputation.rs VirusTotal lookups
 ```
+
+The synchronous detection core (signatures, entropy, polyglot, embedded,
+analysis types, validation, utils) has no async or thread dependencies, so
+`--no-default-features` compiles for `wasm32`.
 
 **Why optional features?**
 
-- Smaller binary for library-only use
-- Fewer dependencies when not needed
-- Faster compilation for core features
+- Smaller binary and fewer dependencies for library-only or embedded use
+- The core builds for WebAssembly without tokio or rayon
+- Heavy or specialized stacks (YARA, TLS for online lookups) stay opt-in
+
+## New and Optional Modules
+
+| Path | Feature | Purpose |
+|------|---------|---------|
+| `detection/detector.rs` | always | `Detector` trait and registry for pluggable stages |
+| `detection/yara.rs` | `yara` | YARA rule scanning via `yara-x` |
+| `reputation.rs` | `online` | VirusTotal hash reputation |
+| `cli/serve.rs` | `server` | HTTP API daemon |
+| `cli/signal.rs` | `cli` | Shared SIGINT/SIGTERM shutdown |
+
+## Companion Crates
+
+Two standalone crates live alongside the main package and depend on the core
+with default features disabled:
+
+- `capi/` builds C ABI bindings (`cdylib`/`staticlib`). This is the only place
+  `unsafe` is used; the core library is `#![forbid(unsafe_code)]`.
+- `wasm/` builds WebAssembly bindings with `wasm-bindgen`.
 
 ---
 
@@ -441,8 +469,9 @@ cli = ["clap", "colored", ...]    # cli/*
 When adding new functionality:
 
 1. **Detection logic** → `detection/` module
-2. **Deep analysis** → `analysis/` module
-3. **File I/O** → `io/` module
-4. **CLI commands** → `cli/` module
-5. **Shared utilities** → `utils.rs`
+2. **A pluggable detection stage** → implement `detection::Detector` and register it
+3. **Deep analysis** → `analysis/` module
+4. **File I/O** → `io/` module
+5. **CLI commands** → `cli/` module
+6. **Shared utilities** → `utils.rs`
 :::

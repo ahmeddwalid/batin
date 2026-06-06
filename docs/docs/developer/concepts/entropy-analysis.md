@@ -371,7 +371,7 @@ if data.len() < 256 {
 ---
 
 :::tip Key Insight
-Entropy is the "second opinion" after magic bytes. A file claiming to be a PDF with 7.9 entropy is almost certainly **not** a normal PDF—it's likely encrypted, packed, or malicious.
+Entropy is the "second opinion" after magic bytes. A file claiming to be a PDF with 7.9 entropy is almost certainly **not** a normal PDF. It is likely encrypted, packed, or malicious.
 
 Combined with chi-square, Batin can distinguish:
 

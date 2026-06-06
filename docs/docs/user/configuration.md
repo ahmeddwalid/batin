@@ -28,6 +28,34 @@ let config = DetectionConfig {
 };
 ```
 
+### Builder style
+
+Start from the defaults and override only what you need with the chainable
+`with_*` setters:
+
+```rust
+use batin::DetectionConfig;
+
+let config = DetectionConfig::default()
+    .with_max_read_bytes(8192)
+    .with_entropy(true)
+    .with_timeout_ms(10_000);
+```
+
+### Validation
+
+Call `config.validate()` to reject nonsensical values before use, for example a
+zero `max_read_bytes`, an entropy threshold outside `0.0..=8.0`, or an
+`encrypted_entropy_threshold` lower than `entropy_threshold`. `from_bytes` and
+`from_file_path` validate the config automatically and return
+`DetectionError::InvalidConfig` on a bad value.
+
+### Archive limits
+
+Archive recursion has its own limits in `ArchiveConfig` (maximum extracted file
+size, total size, entry count, and the suspicious compression ratio). Pass it to
+`archive::scan_archive_with_config` to tune fast triage versus deep forensics.
+
 ## Configuration Options
 
 ### max_read_bytes
@@ -188,17 +216,20 @@ let forensic_config = DetectionConfig {
 
 ## Environment Variables
 
-| Variable | CLI Equivalent | Description |
-|----------|---------------|-------------|
-| `BATIN_MAX_READ_BYTES` | N/A | Default max bytes |
-| `BATIN_TIMEOUT_MS` | N/A | Default timeout |
-| `NO_COLOR` | N/A | Disable colored output |
-| `RUST_LOG` | `--verbose` | Log level |
+The CLI reads these environment variables:
+
+| Variable | Description |
+|----------|-------------|
+| `VT_API_KEY` | VirusTotal API key for `batin reputation` (`online` feature) |
+| `RUST_LOG` | Tracing log filter, for example `RUST_LOG=debug` |
+| `NO_COLOR` | Disable colored output when set |
+
+Detection parameters such as the read size and timeout are set through
+`DetectionConfig` in the library, not environment variables.
 
 ```bash
-# Example: Increase read bytes for all scans
-export BATIN_MAX_READ_BYTES=8192
-batin scan /directory -r
+# Verbose logging for a scan
+RUST_LOG=debug batin scan /directory -r --verbose
 ```
 
 ---

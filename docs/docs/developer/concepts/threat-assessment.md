@@ -362,7 +362,7 @@ async fn security_gate(data: &[u8]) -> Result<(), String> {
 ---
 
 :::tip Design Philosophy
-The threat assessment is **conservative by design**—it's better to over-warn than miss a real threat.
+The threat assessment is **conservative by design**. It is better to over-warn than miss a real threat.
 
 Legitimate files can be whitelisted through:
 
