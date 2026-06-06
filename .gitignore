@@ -1,5 +1,5 @@
-# Rust build artifacts
-/target/
+# Rust build artifacts (any crate, including capi/ and wasm/)
+target/
 **/*.rs.bk
 *.pdb
 
@@ -11,10 +11,10 @@
 /fuzz/corpus/
 /fuzz/artifacts/
 
-# The Documentation is still under development
-docs/
+# Documentation build output and dependencies (sources are tracked)
+docs/node_modules/
 docs/build/
-.github/workflows/docs.yml
+docs/.docusaurus/
 
 # Testing
 *.profraw
