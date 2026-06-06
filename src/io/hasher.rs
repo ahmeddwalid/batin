@@ -2,7 +2,9 @@
 //!
 //! Provides cryptographic hash calculation for files using MD5, SHA-256, and SHA-512.
 
+#[cfg(feature = "hashing")]
 use md5::Md5;
+#[cfg(feature = "hashing")]
 use sha2::{Digest, Sha256, Sha512};
 
 /// File hashes structure
@@ -18,6 +20,8 @@ pub struct FileHashes {
 
 /// Calculate file hashes (MD5, SHA-256, SHA-512)
 ///
+/// Requires the `hashing` feature.
+///
 /// # Examples
 /// ```no_run
 /// use batin::hasher::calculate_hashes;
@@ -27,6 +31,7 @@ pub struct FileHashes {
 /// println!("MD5: {}", hashes.md5);
 /// println!("SHA-256: {}", hashes.sha256);
 /// ```
+#[cfg(feature = "hashing")]
 pub fn calculate_hashes(data: &[u8], include_sha512: bool) -> FileHashes {
     // Calculate MD5
     let mut md5_hasher = Md5::new();
@@ -54,7 +59,7 @@ pub fn calculate_hashes(data: &[u8], include_sha512: bool) -> FileHashes {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, feature = "hashing"))]
 mod tests {
     use super::*;
 
