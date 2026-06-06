@@ -70,7 +70,7 @@ fn parse_hex(input: &str) -> Result<Vec<u8>> {
             "signature magic must not be empty".to_string(),
         ));
     }
-    if cleaned.len() % 2 != 0 {
+    if !cleaned.len().is_multiple_of(2) {
         return Err(DetectionError::InvalidConfig(format!(
             "signature magic has odd hex length: '{input}'"
         )));
