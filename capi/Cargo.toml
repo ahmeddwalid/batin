@@ -1,0 +1,21 @@
+[package]
+name = "batin-capi"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.75"
+license = "GPL-3.0-only"
+description = "C ABI bindings for the Batin file-detection library"
+publish = false
+
+[lib]
+name = "batin_capi"
+# rlib is included so the crate's own tests can link against it.
+crate-type = ["cdylib", "staticlib", "rlib"]
+
+[dependencies]
+# Only the synchronous detection core is needed across the FFI boundary.
+batin = { path = "..", default-features = false }
+serde_json = "1.0"
+
+# Standalone crate (not part of the root package's build).
+[workspace]

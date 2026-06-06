@@ -1,0 +1,20 @@
+[package]
+name = "batin-wasm"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.75"
+license = "GPL-3.0-only"
+description = "WebAssembly bindings for the Batin file-detection library"
+publish = false
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+# Only the synchronous detection core compiles for wasm32 (no tokio/rayon).
+batin = { path = "..", default-features = false }
+wasm-bindgen = "0.2"
+serde_json = "1.0"
+
+# Standalone crate; built for wasm32 separately from the native package.
+[workspace]
