@@ -9,8 +9,10 @@ use colored::Colorize;
 use notify::{Config, Event, RecommendedWatcher, RecursiveMode, Watcher};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
-use std::sync::mpsc::channel;
 use std::time::{Duration, Instant};
+use tokio::sync::mpsc::unbounded_channel;
+
+use super::signal::shutdown_signal;
 
 /// Debounce duration - ignore duplicate events for the same file within this window
 const DEBOUNCE_DURATION: Duration = Duration::from_millis(200);
@@ -41,8 +43,8 @@ pub async fn run_watch(path: PathBuf, verbose: bool) -> anyhow::Result<()> {
 
     let config = DetectionConfig::default();
 
-    // Create a channel to receive file events
-    let (tx, rx) = channel();
+    // Create a channel to receive file events (tokio so we can select on signals)
+    let (tx, mut rx) = unbounded_channel();
 
     // Create a watcher
     let mut watcher = RecommendedWatcher::new(
@@ -60,67 +62,77 @@ pub async fn run_watch(path: PathBuf, verbose: bool) -> anyhow::Result<()> {
     // Debounce map: track when we last processed each file
     let mut last_processed: HashMap<PathBuf, Instant> = HashMap::new();
 
-    // Process events
+    let shutdown = shutdown_signal();
+    tokio::pin!(shutdown);
+
+    // Process events until a shutdown signal or the channel closes.
     loop {
-        match rx.recv() {
-            Ok(event) => {
-                // Only process create and modify events
-                if matches!(
-                    event.kind,
-                    notify::EventKind::Create(_) | notify::EventKind::Modify(_)
-                ) {
-                    // Collect all paths from this event first
-                    let paths_to_process: Vec<PathBuf> = event.paths;
-
-                    // Small delay to let files stabilize (especially for copies)
-                    tokio::time::sleep(FILE_STABILIZATION_DELAY).await;
-
-                    // Now process each file
-                    for event_path in paths_to_process {
-                        // Check if it's a file (after stabilization delay)
-                        if !event_path.is_file() {
-                            continue;
-                        }
-
-                        // Get fresh timestamp for debounce check
-                        let now = Instant::now();
-
-                        // Debounce: skip if we processed this file recently
-                        if let Some(last_time) = last_processed.get(&event_path) {
-                            if now.duration_since(*last_time) < DEBOUNCE_DURATION {
-                                if verbose {
-                                    let timestamp = Local::now().format("%H:%M:%S").to_string();
-                                    println!(
-                                        "  {} {} {} (skipped: duplicate event)",
-                                        timestamp.color(theme::MUTED),
-                                        "↻".color(theme::MUTED),
-                                        event_path.display().to_string().dimmed()
-                                    );
-                                }
-                                continue; // Skip duplicate event
-                            }
-                        }
-
-                        // Record this processing time BEFORE processing
-                        last_processed.insert(event_path.clone(), now);
-
-                        // Clean up old entries periodically (avoid memory leak)
-                        if last_processed.len() > 1000 {
-                            let cleanup_now = Instant::now();
-                            last_processed.retain(|_, time| {
-                                cleanup_now.duration_since(*time) < Duration::from_secs(60)
-                            });
-                        }
-
-                        process_new_file(&event_path, &config, verbose).await;
-                    }
-                }
-            }
-            Err(e) => {
-                if verbose {
-                    console::print_error(&format!("Watch error: {}", e));
-                }
+        let event = tokio::select! {
+            maybe_event = rx.recv() => match maybe_event {
+                Some(event) => event,
+                None => break,
+            },
+            _ = &mut shutdown => {
+                println!(
+                    "\n  {} {}",
+                    "■".color(theme::MUTED),
+                    "Shutdown signal received, stopping watcher...".color(theme::MUTED)
+                );
                 break;
+            }
+        };
+
+        {
+            // Only process create and modify events
+            if matches!(
+                event.kind,
+                notify::EventKind::Create(_) | notify::EventKind::Modify(_)
+            ) {
+                // Collect all paths from this event first
+                let paths_to_process: Vec<PathBuf> = event.paths;
+
+                // Small delay to let files stabilize (especially for copies)
+                tokio::time::sleep(FILE_STABILIZATION_DELAY).await;
+
+                // Now process each file
+                for event_path in paths_to_process {
+                    // Check if it's a file (after stabilization delay)
+                    if !event_path.is_file() {
+                        continue;
+                    }
+
+                    // Get fresh timestamp for debounce check
+                    let now = Instant::now();
+
+                    // Debounce: skip if we processed this file recently
+                    if let Some(last_time) = last_processed.get(&event_path) {
+                        if now.duration_since(*last_time) < DEBOUNCE_DURATION {
+                            if verbose {
+                                let timestamp = Local::now().format("%H:%M:%S").to_string();
+                                println!(
+                                    "  {} {} {} (skipped: duplicate event)",
+                                    timestamp.color(theme::MUTED),
+                                    "↻".color(theme::MUTED),
+                                    event_path.display().to_string().dimmed()
+                                );
+                            }
+                            continue; // Skip duplicate event
+                        }
+                    }
+
+                    // Record this processing time BEFORE processing
+                    last_processed.insert(event_path.clone(), now);
+
+                    // Clean up old entries periodically (avoid memory leak)
+                    if last_processed.len() > 1000 {
+                        let cleanup_now = Instant::now();
+                        last_processed.retain(|_, time| {
+                            cleanup_now.duration_since(*time) < Duration::from_secs(60)
+                        });
+                    }
+
+                    process_new_file(&event_path, &config, verbose).await;
+                }
             }
         }
     }

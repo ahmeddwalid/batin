@@ -15,31 +15,68 @@ use std::path::{Path, PathBuf};
 use std::time::Instant;
 use walkdir::WalkDir;
 
+/// Default recursion depth used when scanning inside archives.
+const DEFAULT_ARCHIVE_DEPTH: usize = 4;
+
+/// Output format for scan results.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum OutputFormat {
+    /// Human-readable colored table (default).
+    Table,
+    /// Pretty-printed JSON array.
+    Json,
+    /// Comma-separated values.
+    Csv,
+    /// Newline-delimited JSON (one result per line).
+    Ndjson,
+    /// SARIF 2.1.0 for code-scanning dashboards.
+    Sarif,
+    /// Self-contained HTML report.
+    Html,
+}
+
 /// Scan options
 #[derive(Clone)]
 pub struct ScanOptions {
     pub recursive: bool,
-    pub json: bool,
-    pub csv: bool,
+    pub format: OutputFormat,
     pub verbose: bool,
     pub output: Option<PathBuf>,
     pub exclude: Vec<String>,
     pub min_threat: Option<ThreatLevel>,
     pub include_hash: bool,
+    /// Recurse into archives (ZIP/TAR/tar.gz) and report nested entries.
+    pub scan_archives: bool,
+    /// Maximum archive recursion depth.
+    pub max_archive_depth: usize,
+    /// Number of files to detect concurrently (0 = automatic).
+    pub concurrency: usize,
+    /// Known-bad SHA-256 hashes; matches are flagged Critical.
+    pub hash_deny: std::sync::Arc<std::collections::HashSet<String>>,
 }
 
 impl Default for ScanOptions {
     fn default() -> Self {
         Self {
             recursive: false,
-            json: false,
-            csv: false,
+            format: OutputFormat::Table,
             verbose: false,
             output: None,
             exclude: Vec::new(),
             min_threat: None,
             include_hash: false,
+            scan_archives: false,
+            max_archive_depth: DEFAULT_ARCHIVE_DEPTH,
+            concurrency: 0,
+            hash_deny: std::sync::Arc::new(std::collections::HashSet::new()),
         }
+    }
+}
+
+impl ScanOptions {
+    /// Whether output is machine-readable (suppresses banners/progress UI).
+    fn is_quiet(&self) -> bool {
+        self.format != OutputFormat::Table
     }
 }
 
@@ -49,8 +86,8 @@ pub async fn run_scan(path: PathBuf, options: ScanOptions) -> anyhow::Result<()>
     let mut results = Vec::new();
     let start_time = Instant::now();
 
-    // Print banner for interactive output (not JSON/CSV)
-    if !options.json && !options.csv {
+    // Print banner only for interactive (table) output
+    if !options.is_quiet() {
         console::print_banner();
         println!(
             "  {} Scanning: {}\n",
@@ -68,7 +105,7 @@ pub async fn run_scan(path: PathBuf, options: ScanOptions) -> anyhow::Result<()>
 
     if path.is_file() {
         if !is_excluded(&path, &exclude_patterns) {
-            process_file(&path, &config, &options, &mut results).await?;
+            results.extend(process_file(&path, &config, &options).await);
         }
     } else if path.is_dir() {
         // Limit max depth to 100 to prevent DoS from malicious symlink structures
@@ -79,38 +116,56 @@ pub async fn run_scan(path: PathBuf, options: ScanOptions) -> anyhow::Result<()>
             1
         });
 
-        let entries: Vec<_> = walker
+        let entries: Vec<PathBuf> = walker
             .into_iter()
             .filter_map(|e| e.ok())
             .filter(|e| e.file_type().is_file())
             .filter(|e| !is_excluded(e.path(), &exclude_patterns))
+            .map(|e| e.path().to_path_buf())
             .collect();
 
-        // Create enhanced progress bar
-        let pb = ProgressBar::new(entries.len() as u64);
-        pb.set_style(
-            ProgressStyle::default_bar()
-                .template(
-                    "{spinner:.cyan} {msg}\n  [{elapsed_precise}] ▕{bar:40.cyan/blue}▏ {pos}/{len} ({percent}%) • ETA: {eta}",
-                )
-                .unwrap()
-                .progress_chars("█▓▒░ "),
-        );
-        pb.set_message("Analyzing files...");
+        // Progress bar (hidden for machine-readable output).
+        let pb = if options.is_quiet() {
+            ProgressBar::hidden()
+        } else {
+            let pb = ProgressBar::new(entries.len() as u64);
+            pb.set_style(
+                ProgressStyle::default_bar()
+                    .template(
+                        "{spinner:.cyan} {msg}\n  [{elapsed_precise}] ▕{bar:40.cyan/blue}▏ {pos}/{len} ({percent}%) • ETA: {eta}",
+                    )
+                    .unwrap()
+                    .progress_chars("█▓▒░ "),
+            );
+            pb.set_message("Analyzing files...");
+            pb
+        };
 
-        for entry in entries {
-            let filename = entry
-                .path()
-                .file_name()
-                .map(|n| n.to_string_lossy().to_string())
-                .unwrap_or_default();
-            pb.set_message(format!("Scanning: {}", filename));
-            process_file(entry.path(), &config, &options, &mut results).await?;
+        // Detect files concurrently, preserving all results.
+        let concurrency = if options.concurrency == 0 {
+            std::thread::available_parallelism()
+                .map(|n| n.get())
+                .unwrap_or(4)
+        } else {
+            options.concurrency
+        };
+
+        use futures::stream::{self, StreamExt};
+        let mut stream = stream::iter(entries.iter())
+            .map(|p| {
+                let config = &config;
+                let options = &options;
+                async move { process_file(p, config, options).await }
+            })
+            .buffer_unordered(concurrency);
+
+        while let Some(mut file_results) = stream.next().await {
+            results.append(&mut file_results);
             pb.inc(1);
         }
         pb.finish_and_clear();
 
-        if !options.json && !options.csv {
+        if !options.is_quiet() {
             console::print_success("Scan complete!");
         }
     }
@@ -153,8 +208,8 @@ async fn process_file(
     path: &Path,
     config: &DetectionConfig,
     options: &ScanOptions,
-    results: &mut Vec<ScanResult>,
-) -> anyhow::Result<()> {
+) -> Vec<ScanResult> {
+    let mut results = Vec::new();
     match FileType::from_file_path(path, config).await {
         Ok(mut file_type) => {
             // Calculate hashes if requested (using async I/O)
@@ -164,9 +219,18 @@ async fn process_file(
                 }
             }
 
+            // Flag known-bad hashes (reputation denylist).
+            apply_hash_denylist(&mut file_type, options);
+
             if options.verbose {
                 println!("Processed: {}", path.display());
             }
+
+            // Recurse into archives when requested.
+            if options.scan_archives && is_archive(&file_type.extension) {
+                results.extend(scan_archive_entries(path, config, options).await);
+            }
+
             results.push(ScanResult {
                 path: path.to_string_lossy().to_string(),
                 file_type,
@@ -188,6 +252,7 @@ async fn process_file(
                 embedded_threats: vec![],
                 hashes: None,
                 binary_metadata: None,
+                warnings: vec![],
             };
             results.push(ScanResult {
                 path: path.to_string_lossy().to_string(),
@@ -195,7 +260,97 @@ async fn process_file(
             });
         }
     }
-    Ok(())
+    results
+}
+
+/// Escalate to Critical and add a warning if the file's SHA-256 is denylisted.
+fn apply_hash_denylist(file_type: &mut FileType, options: &ScanOptions) {
+    if options.hash_deny.is_empty() {
+        return;
+    }
+    if let Some(hashes) = &file_type.hashes {
+        if options.hash_deny.contains(&hashes.sha256.to_lowercase()) {
+            file_type.warnings.push(format!(
+                "SHA-256 {} is on the reputation denylist",
+                hashes.sha256
+            ));
+            file_type.threat_level = ThreatLevel::Critical;
+        }
+    }
+}
+
+/// Cheap pre-filter on the detected extension for container-like files.
+///
+/// Covers raw archives plus ZIP-derived formats (which are real ZIP containers).
+/// The actual container is confirmed by magic bytes via
+/// [`batin::archive::is_recursible_archive`] before scanning.
+fn is_archive(extension: &str) -> bool {
+    matches!(
+        extension,
+        "zip"
+            | "tar"
+            | "gz"
+            | "tgz"
+            | "docx"
+            | "xlsx"
+            | "pptx"
+            | "odt"
+            | "ods"
+            | "odp"
+            | "jar"
+            | "apk"
+            | "epub"
+            | "xps"
+    )
+}
+
+/// Read an archive from disk and return each nested entry as a scan result.
+async fn scan_archive_entries(
+    path: &Path,
+    config: &DetectionConfig,
+    options: &ScanOptions,
+) -> Vec<ScanResult> {
+    let mut results = Vec::new();
+    let data = match tokio::fs::read(path).await {
+        Ok(data) => data,
+        Err(e) => {
+            if options.verbose {
+                eprintln!("Could not read archive {}: {}", path.display(), e);
+            }
+            return results;
+        }
+    };
+
+    if !batin::archive::is_recursible_archive(&data) {
+        return results;
+    }
+
+    let archive_config = batin::ArchiveConfig::default();
+    let entries = match batin::archive::scan_archive_with_config(
+        &data,
+        options.max_archive_depth,
+        config,
+        &archive_config,
+    ) {
+        Ok(entries) => entries,
+        Err(e) => {
+            if options.verbose {
+                eprintln!("Could not scan archive {}: {}", path.display(), e);
+            }
+            return results;
+        }
+    };
+
+    let base = path.to_string_lossy();
+    for entry in entries {
+        if let Some(file_type) = entry.file_type {
+            results.push(ScanResult {
+                path: format!("{}::{}", base, entry.path),
+                file_type,
+            });
+        }
+    }
+    results
 }
 
 #[derive(serde::Serialize)]
@@ -209,17 +364,151 @@ fn output_results(
     options: &ScanOptions,
     duration: std::time::Duration,
 ) -> anyhow::Result<()> {
-    if options.json {
-        let json = serde_json::to_string_pretty(&results)?;
-        write_output(&json, &options.output)?;
-    } else if options.csv {
-        let csv_output = generate_csv(results)?;
-        write_output(&csv_output, &options.output)?;
-    } else {
-        print_table(results);
-        print_summary(results, duration);
+    match options.format {
+        OutputFormat::Json => {
+            let json = serde_json::to_string_pretty(&results)?;
+            write_output(&json, &options.output)?;
+        }
+        OutputFormat::Csv => {
+            let csv_output = generate_csv(results)?;
+            write_output(&csv_output, &options.output)?;
+        }
+        OutputFormat::Ndjson => {
+            write_output(&generate_ndjson(results)?, &options.output)?;
+        }
+        OutputFormat::Sarif => {
+            write_output(&generate_sarif(results)?, &options.output)?;
+        }
+        OutputFormat::Html => {
+            write_output(&generate_html(results), &options.output)?;
+        }
+        OutputFormat::Table => {
+            print_table(results);
+            print_summary(results, duration);
+        }
     }
     Ok(())
+}
+
+/// Map a threat level to a SARIF result level.
+fn sarif_level(level: &ThreatLevel) -> &'static str {
+    match level {
+        ThreatLevel::Safe => "note",
+        ThreatLevel::Suspicious => "warning",
+        ThreatLevel::Dangerous | ThreatLevel::Critical => "error",
+    }
+}
+
+/// Generate newline-delimited JSON (one result object per line).
+fn generate_ndjson(results: &[ScanResult]) -> anyhow::Result<String> {
+    let mut out = String::new();
+    for res in results {
+        out.push_str(&serde_json::to_string(res)?);
+        out.push('\n');
+    }
+    Ok(out)
+}
+
+/// Generate a SARIF 2.1.0 report for code-scanning dashboards.
+fn generate_sarif(results: &[ScanResult]) -> anyhow::Result<String> {
+    let sarif_results: Vec<serde_json::Value> = results
+        .iter()
+        .map(|res| {
+            let ft = &res.file_type;
+            let mut message = format!(
+                "Detected {} ({}), threat: {:?}",
+                ft.extension, ft.mime_type, ft.threat_level
+            );
+            if !ft.embedded_threats.is_empty() {
+                message.push_str(&format!(
+                    "; {} embedded threat(s)",
+                    ft.embedded_threats.len()
+                ));
+            }
+            serde_json::json!({
+                "ruleId": format!("batin/{:?}", ft.threat_level).to_lowercase(),
+                "level": sarif_level(&ft.threat_level),
+                "message": { "text": message },
+                "locations": [{
+                    "physicalLocation": {
+                        "artifactLocation": { "uri": res.path }
+                    }
+                }]
+            })
+        })
+        .collect();
+
+    let sarif = serde_json::json!({
+        "$schema": "https://raw.githubusercontent.com/oasis-tcs/sarif-spec/master/Schemata/sarif-schema-2.1.0.json",
+        "version": "2.1.0",
+        "runs": [{
+            "tool": {
+                "driver": {
+                    "name": "batin",
+                    "informationUri": "https://github.com/ahmeddwalid/batin",
+                    "version": env!("CARGO_PKG_VERSION"),
+                    "rules": []
+                }
+            },
+            "results": sarif_results
+        }]
+    });
+    Ok(serde_json::to_string_pretty(&sarif)?)
+}
+
+/// Generate a self-contained HTML report.
+fn generate_html(results: &[ScanResult]) -> String {
+    fn esc(s: &str) -> String {
+        s.replace('&', "&amp;")
+            .replace('<', "&lt;")
+            .replace('>', "&gt;")
+    }
+
+    let mut rows = String::new();
+    for res in results {
+        let ft = &res.file_type;
+        let threat = format!("{:?}", ft.threat_level);
+        let cls = threat.to_lowercase();
+        let entropy = ft
+            .entropy_profile
+            .as_ref()
+            .map(|e| format!("{:.2}", e.global_entropy))
+            .unwrap_or_else(|| "-".to_string());
+        rows.push_str(&format!(
+            "<tr class=\"{cls}\"><td>{}</td><td>{}</td><td>{}</td><td>{:.0}%</td><td><span class=\"badge {cls}\">{threat}</span></td><td>{entropy}</td><td>{}</td></tr>\n",
+            esc(&res.path),
+            esc(&ft.extension),
+            esc(&ft.mime_type),
+            ft.confidence * 100.0,
+            ft.embedded_threats.len(),
+        ));
+    }
+
+    format!(
+        r#"<!DOCTYPE html>
+<html lang="en"><head><meta charset="utf-8"><title>Batin Scan Report</title>
+<style>
+  body {{ font-family: system-ui, sans-serif; background: #080808; color: #f5f2ec; margin: 2rem; }}
+  h1 {{ font-size: clamp(1.5rem, 4vw, 2.5rem); }}
+  table {{ border-collapse: collapse; width: 100%; font-size: 0.9rem; }}
+  th, td {{ padding: 8px 12px; text-align: left; border-bottom: 1px solid #222; }}
+  th {{ color: #9a9a9a; text-transform: uppercase; font-size: 0.75rem; }}
+  .badge {{ padding: 2px 8px; border-radius: 999px; font-size: 0.75rem; }}
+  .safe {{ color: #6ee7b7; }} .suspicious {{ color: #fcd34d; }}
+  .dangerous {{ color: #fb923c; }} .critical {{ color: #f87171; font-weight: 700; }}
+  .badge.safe {{ background: #064e3b; }} .badge.suspicious {{ background: #78350f; }}
+  .badge.dangerous {{ background: #7c2d12; }} .badge.critical {{ background: #7f1d1d; }}
+</style></head><body>
+<h1>Batin Scan Report</h1>
+<p>{} file(s) scanned · batin v{}</p>
+<table><thead><tr><th>Path</th><th>Type</th><th>MIME</th><th>Confidence</th><th>Threat</th><th>Entropy</th><th>Embedded</th></tr></thead>
+<tbody>
+{rows}</tbody></table>
+</body></html>
+"#,
+        results.len(),
+        env!("CARGO_PKG_VERSION"),
+    )
 }
 
 fn write_output(content: &str, output_path: &Option<PathBuf>) -> anyhow::Result<()> {

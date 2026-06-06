@@ -58,6 +58,7 @@ pub fn print_section(title: &str) {
 }
 
 /// Get threat level indicator with colored icon and label
+#[allow(dead_code)] // Public console helper, not yet wired into all output paths.
 pub fn threat_indicator(level: &ThreatLevel) -> ColoredString {
     match level {
         ThreatLevel::Safe => "✓ Safe".color(theme::SUCCESS),
