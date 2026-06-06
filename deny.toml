@@ -32,6 +32,8 @@ allow = [
     "CC0-1.0",
     "0BSD",
     "BSL-1.0",
+    # Permissive data-license used by some wasm-target build crates (wit-bindgen).
+    "CDLA-Permissive-2.0",
 ]
 confidence-threshold = 0.8
 
