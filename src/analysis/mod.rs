@@ -12,5 +12,7 @@ pub mod validation;
 
 // Re-exports
 pub use forensics::classify_fragment;
-pub use pe_parser::{parse_binary, BinaryFormat, BinaryMetadata, Section};
+#[cfg(feature = "binary-parsing")]
+pub use pe_parser::parse_binary;
+pub use pe_parser::{BinaryFormat, BinaryMetadata, Section};
 pub use validation::{validate_pdf, validate_pe, validate_png, validate_zip, ValidationResult};

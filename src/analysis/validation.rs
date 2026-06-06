@@ -49,7 +49,12 @@ pub fn validate_pdf(data: &[u8]) -> ValidationResult {
     }
 }
 
-/// Validate PNG structure (check CRC of IHDR chunk)
+/// Validate PNG structure, verifying each chunk's CRC-32.
+///
+/// Walks the PNG chunk stream and checks the trailing CRC of every chunk
+/// against a recomputed CRC over `type + data`. A CRC mismatch means the file
+/// has a valid PNG signature but corrupt/tampered content, surfaced as a
+/// distinct, low-confidence result.
 pub fn validate_png(data: &[u8]) -> ValidationResult {
     // PNG signature: 89 50 4E 47 0D 0A 1A 0A
     if data.len() < 8 || &data[0..8] != &[0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A] {
@@ -60,29 +65,79 @@ pub fn validate_png(data: &[u8]) -> ValidationResult {
         };
     }
 
-    // Check for IHDR chunk (must be first chunk after signature)
-    if data.len() >= 16 {
-        let chunk_type = &data[12..16];
-        if chunk_type == b"IHDR" {
-            // Check for IEND chunk
-            let has_iend = find_pattern(data, b"IEND").is_some();
-
-            return ValidationResult {
-                is_valid: true,
-                confidence_boost: if has_iend { 0.1 } else { 0.05 },
-                details: if has_iend {
-                    "Valid PNG with IHDR and IEND".to_string()
-                } else {
-                    "PNG has IHDR but missing IEND".to_string()
-                },
-            };
-        }
+    // First chunk after the signature must be IHDR.
+    if data.len() < 16 || &data[12..16] != b"IHDR" {
+        return ValidationResult {
+            is_valid: false,
+            confidence_boost: -0.2,
+            details: "PNG missing IHDR chunk".to_string(),
+        };
     }
 
-    ValidationResult {
-        is_valid: false,
-        confidence_boost: -0.2,
-        details: "PNG missing IHDR chunk".to_string(),
+    // Walk chunks: [len:4][type:4][data:len][crc:4]; verify each CRC.
+    let mut pos = 8usize;
+    let mut checked = 0usize;
+    let mut saw_iend = false;
+    let mut truncated = false;
+
+    while pos + 8 <= data.len() {
+        let len =
+            u32::from_be_bytes([data[pos], data[pos + 1], data[pos + 2], data[pos + 3]]) as usize;
+        let type_start = pos + 4;
+        let data_start = type_start + 4;
+        let crc_start = data_start + len;
+        let crc_end = crc_start + 4;
+        if crc_end > data.len() {
+            truncated = true;
+            break;
+        }
+
+        let chunk_type = &data[type_start..type_start + 4];
+        let stored_crc = u32::from_be_bytes([
+            data[crc_start],
+            data[crc_start + 1],
+            data[crc_start + 2],
+            data[crc_start + 3],
+        ]);
+        // CRC covers chunk type + chunk data.
+        let computed = crate::utils::crc32(&data[type_start..crc_start]);
+        if computed != stored_crc {
+            return ValidationResult {
+                is_valid: false,
+                confidence_boost: -0.25,
+                details: format!(
+                    "PNG chunk '{}' CRC mismatch (corrupt or tampered)",
+                    String::from_utf8_lossy(chunk_type)
+                ),
+            };
+        }
+
+        checked += 1;
+        if chunk_type == b"IEND" {
+            saw_iend = true;
+            break;
+        }
+        pos = crc_end;
+    }
+
+    if saw_iend {
+        ValidationResult {
+            is_valid: true,
+            confidence_boost: 0.15,
+            details: format!("Valid PNG: {checked} chunks CRC-verified, IEND present"),
+        }
+    } else if truncated {
+        ValidationResult {
+            is_valid: false,
+            confidence_boost: -0.1,
+            details: format!("PNG truncated after {checked} valid chunk(s)"),
+        }
+    } else {
+        ValidationResult {
+            is_valid: true,
+            confidence_boost: 0.05,
+            details: format!("PNG: {checked} chunks CRC-verified but IEND missing"),
+        }
     }
 }
 
@@ -197,15 +252,45 @@ mod tests {
         assert!(result.confidence_boost > 0.0);
     }
 
-    #[test]
-    fn test_validate_png() {
-        let valid_png = [
-            0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, // PNG sig
-            0x00, 0x00, 0x00, 0x0D, // IHDR length
-            b'I', b'H', b'D', b'R', // IHDR type
+    /// Build a minimal CRC-valid PNG (1x1 grayscale) with IHDR + IEND.
+    fn build_png() -> Vec<u8> {
+        fn chunk(out: &mut Vec<u8>, kind: &[u8; 4], data: &[u8]) {
+            out.extend_from_slice(&(data.len() as u32).to_be_bytes());
+            let mut crc_input = kind.to_vec();
+            crc_input.extend_from_slice(data);
+            out.extend_from_slice(kind);
+            out.extend_from_slice(data);
+            out.extend_from_slice(&crate::utils::crc32(&crc_input).to_be_bytes());
+        }
+        let mut png = vec![0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A];
+        let ihdr = [
+            0x00, 0x00, 0x00, 0x01, // width 1
+            0x00, 0x00, 0x00, 0x01, // height 1
+            0x08, 0x00, 0x00, 0x00, 0x00, // bit depth, color, compression, filter, interlace
         ];
-        let result = validate_png(&valid_png);
-        assert!(result.is_valid);
+        chunk(&mut png, b"IHDR", &ihdr);
+        chunk(&mut png, b"IEND", &[]);
+        png
+    }
+
+    #[test]
+    fn test_validate_png_valid_crc() {
+        let png = build_png();
+        let result = validate_png(&png);
+        assert!(result.is_valid, "{}", result.details);
+        assert!(result.confidence_boost > 0.0);
+        assert!(result.details.contains("CRC-verified"));
+    }
+
+    #[test]
+    fn test_validate_png_detects_crc_corruption() {
+        let mut png = build_png();
+        // Flip a byte inside the IHDR data (offset 16 is start of IHDR data).
+        png[16] ^= 0xFF;
+        let result = validate_png(&png);
+        assert!(!result.is_valid);
+        assert!(result.details.contains("CRC mismatch"));
+        assert!(result.confidence_boost < 0.0);
     }
 
     #[test]

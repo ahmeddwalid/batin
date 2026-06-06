@@ -2,8 +2,10 @@
 //!
 //! Extracts metadata from PE (Windows) and ELF (Linux/Unix) executables using goblin.
 
+#[cfg(feature = "binary-parsing")]
 use crate::Result;
-use goblin::{elf, pe, Object};
+#[cfg(feature = "binary-parsing")]
+use goblin::{elf, mach, pe, Object};
 
 /// Binary format enumeration
 #[derive(Debug, Clone, serde::Serialize)]
@@ -59,6 +61,9 @@ pub struct BinaryMetadata {
 /// println!("Architecture: {}", metadata.architecture);
 /// println!("Imports: {:?}", metadata.imports);
 /// ```
+///
+/// Requires the `binary-parsing` feature.
+#[cfg(feature = "binary-parsing")]
 pub fn parse_binary(data: &[u8]) -> Result<BinaryMetadata> {
     let obj = Object::parse(data).map_err(|e| {
         crate::DetectionError::CorruptedStructure(format!("Failed to parse binary: {}", e))
@@ -67,7 +72,7 @@ pub fn parse_binary(data: &[u8]) -> Result<BinaryMetadata> {
     match obj {
         Object::PE(pe) => parse_pe(pe),
         Object::Elf(elf) => parse_elf(elf),
-        Object::Mach(_mach) => parse_mach(),
+        Object::Mach(mach) => parse_mach(mach),
         _ => Ok(BinaryMetadata {
             format: BinaryFormat::Unknown,
             architecture: "unknown".to_string(),
@@ -79,6 +84,7 @@ pub fn parse_binary(data: &[u8]) -> Result<BinaryMetadata> {
     }
 }
 
+#[cfg(feature = "binary-parsing")]
 fn parse_pe(pe: pe::PE) -> Result<BinaryMetadata> {
     let architecture = match pe.header.coff_header.machine {
         0x14c => "i386",
@@ -130,6 +136,7 @@ fn parse_pe(pe: pe::PE) -> Result<BinaryMetadata> {
     })
 }
 
+#[cfg(feature = "binary-parsing")]
 fn parse_elf(elf: elf::Elf) -> Result<BinaryMetadata> {
     let architecture = match elf.header.e_machine {
         3 => "i386",
@@ -188,14 +195,83 @@ fn parse_elf(elf: elf::Elf) -> Result<BinaryMetadata> {
     })
 }
 
-fn parse_mach() -> Result<BinaryMetadata> {
-    // Basic Mach-O support
+#[cfg(feature = "binary-parsing")]
+fn parse_mach(mach: mach::Mach) -> Result<BinaryMetadata> {
+    match mach {
+        mach::Mach::Binary(macho) => parse_macho(&macho),
+        mach::Mach::Fat(multiarch) => {
+            // Universal (fat) binary: report metadata for the first Mach-O slice.
+            for i in 0..multiarch.narches {
+                if let Ok(mach::SingleArch::MachO(macho)) = multiarch.get(i) {
+                    return parse_macho(&macho);
+                }
+            }
+            Ok(BinaryMetadata {
+                format: BinaryFormat::MachO,
+                architecture: "fat".to_string(),
+                imports: Vec::new(),
+                exports: Vec::new(),
+                sections: Vec::new(),
+                entry_point: None,
+            })
+        }
+    }
+}
+
+#[cfg(feature = "binary-parsing")]
+fn parse_macho(macho: &mach::MachO) -> Result<BinaryMetadata> {
+    use mach::constants::cputype;
+
+    let architecture = match macho.header.cputype {
+        cputype::CPU_TYPE_X86 => "i386",
+        cputype::CPU_TYPE_X86_64 => "x86_64",
+        cputype::CPU_TYPE_ARM => "arm",
+        cputype::CPU_TYPE_ARM64 => "arm64",
+        cputype::CPU_TYPE_ARM64_32 => "arm64_32",
+        cputype::CPU_TYPE_POWERPC => "powerpc",
+        cputype::CPU_TYPE_POWERPC64 => "powerpc64",
+        _ => "unknown",
+    }
+    .to_string();
+
+    // Imports: linked dynamic libraries plus resolved symbol imports.
+    let mut imports: Vec<String> = macho.libs.iter().map(|lib| lib.to_string()).collect();
+    if let Ok(symbol_imports) = macho.imports() {
+        for import in symbol_imports {
+            imports.push(format!("{}::{}", import.dylib, import.name));
+        }
+    }
+
+    // Exports: symbols exported via the export trie.
+    let exports: Vec<String> = macho
+        .exports()
+        .map(|exports| exports.into_iter().map(|e| e.name).collect())
+        .unwrap_or_default();
+
+    // Sections: flatten every segment's sections.
+    let mut sections = Vec::new();
+    for segment in &macho.segments {
+        if let Ok(segment_sections) = segment.sections() {
+            for (section, _data) in segment_sections {
+                let name = section.name().unwrap_or("").to_string();
+                sections.push(Section {
+                    name,
+                    virtual_size: section.size,
+                    raw_size: section.size,
+                    characteristics: section.flags,
+                });
+            }
+        }
+    }
+
+    let entry_point = Some(macho.entry);
+
     Ok(BinaryMetadata {
         format: BinaryFormat::MachO,
-        architecture: "unknown".to_string(),
-        imports: Vec::new(),
-        exports: Vec::new(),
-        sections: Vec::new(),
-        entry_point: None,
+        architecture,
+        imports,
+        exports,
+        sections,
+        entry_point,
     })
 }

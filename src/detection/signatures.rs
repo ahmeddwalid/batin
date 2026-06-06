@@ -1,6 +1,8 @@
 //! File signature database and definitions
 
+use crate::{DetectionError, Result};
 use std::collections::HashMap;
+use std::path::Path;
 use std::sync::{LazyLock, RwLock};
 
 /// File signature database with lazy initialization
@@ -17,7 +19,8 @@ pub struct FileSignature {
     pub category: FileCategory,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Deserialize)]
+#[serde(rename_all = "lowercase")]
 pub enum FileCategory {
     Image,
     Document,
@@ -26,6 +29,83 @@ pub enum FileCategory {
     Multimedia,
     Text,
     Unknown,
+}
+
+impl Default for FileCategory {
+    fn default() -> Self {
+        Self::Unknown
+    }
+}
+
+/// User-supplied signature specification, deserialized from JSON.
+///
+/// Magic bytes are written as a hex string for readability, e.g.
+/// `"89504e47"` or `"89 50 4e 47"` (whitespace and an optional `0x`
+/// prefix are ignored).
+#[derive(Debug, Clone, serde::Deserialize)]
+pub struct SignatureSpec {
+    /// Magic bytes as a hex string.
+    pub magic: String,
+    /// Offset at which the magic bytes appear (default 0).
+    #[serde(default)]
+    pub offset: usize,
+    /// File extensions this signature maps to (at least one required).
+    pub extensions: Vec<String>,
+    /// MIME type for the format.
+    pub mime_type: String,
+    /// File category (default `unknown`).
+    #[serde(default)]
+    pub category: FileCategory,
+}
+
+/// A JSON document containing user signatures: `{ "signatures": [ ... ] }`.
+#[derive(Debug, Clone, serde::Deserialize)]
+pub struct SignatureFile {
+    #[serde(default)]
+    pub signatures: Vec<SignatureSpec>,
+}
+
+/// Parse a hex string (ignoring whitespace and an optional `0x` prefix) to bytes.
+fn parse_hex(input: &str) -> Result<Vec<u8>> {
+    let cleaned: String = input.chars().filter(|c| !c.is_whitespace()).collect();
+    let cleaned = cleaned.strip_prefix("0x").unwrap_or(&cleaned);
+    if cleaned.is_empty() {
+        return Err(DetectionError::InvalidConfig(
+            "signature magic must not be empty".to_string(),
+        ));
+    }
+    if cleaned.len() % 2 != 0 {
+        return Err(DetectionError::InvalidConfig(format!(
+            "signature magic has odd hex length: '{input}'"
+        )));
+    }
+    (0..cleaned.len())
+        .step_by(2)
+        .map(|i| {
+            u8::from_str_radix(&cleaned[i..i + 2], 16).map_err(|_| {
+                DetectionError::InvalidConfig(format!("invalid hex in signature magic: '{input}'"))
+            })
+        })
+        .collect()
+}
+
+impl TryFrom<SignatureSpec> for FileSignature {
+    type Error = DetectionError;
+
+    fn try_from(spec: SignatureSpec) -> Result<Self> {
+        if spec.extensions.is_empty() {
+            return Err(DetectionError::InvalidConfig(
+                "signature must declare at least one extension".to_string(),
+            ));
+        }
+        Ok(FileSignature {
+            magic_bytes: parse_hex(&spec.magic)?,
+            offset: spec.offset,
+            extensions: spec.extensions,
+            mime_type: spec.mime_type,
+            category: spec.category,
+        })
+    }
 }
 
 /// Signature database with 50+ formats
@@ -528,6 +608,63 @@ impl SignatureDatabase {
                 category: FileCategory::Document,
             },
             // Note: WebAssembly signature is already defined earlier in the list (lines 314-321)
+            // Fonts
+            FileSignature {
+                magic_bytes: vec![0x00, 0x01, 0x00, 0x00, 0x00],
+                offset: 0,
+                extensions: vec!["ttf".to_string()],
+                mime_type: "font/ttf".to_string(),
+                category: FileCategory::Document,
+            },
+            FileSignature {
+                magic_bytes: vec![0x4F, 0x54, 0x54, 0x4F], // OTTO
+                offset: 0,
+                extensions: vec!["otf".to_string()],
+                mime_type: "font/otf".to_string(),
+                category: FileCategory::Document,
+            },
+            FileSignature {
+                magic_bytes: vec![0x77, 0x4F, 0x46, 0x46], // wOFF
+                offset: 0,
+                extensions: vec!["woff".to_string()],
+                mime_type: "font/woff".to_string(),
+                category: FileCategory::Document,
+            },
+            FileSignature {
+                magic_bytes: vec![0x77, 0x4F, 0x46, 0x32], // wOF2
+                offset: 0,
+                extensions: vec!["woff2".to_string()],
+                mime_type: "font/woff2".to_string(),
+                category: FileCategory::Document,
+            },
+            // Windows shortcut (.lnk) - common malware delivery vector.
+            // Header size 0x4C + ShellLinkHeader CLSID.
+            FileSignature {
+                magic_bytes: vec![
+                    0x4C, 0x00, 0x00, 0x00, 0x01, 0x14, 0x02, 0x00, 0x00, 0x00, 0x00, 0x00, 0xC0,
+                    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x46,
+                ],
+                offset: 0,
+                extensions: vec!["lnk".to_string()],
+                mime_type: "application/x-ms-shortcut".to_string(),
+                category: FileCategory::Executable,
+            },
+            // Rich Text Format
+            FileSignature {
+                magic_bytes: vec![0x7B, 0x5C, 0x72, 0x74, 0x66], // {\rtf
+                offset: 0,
+                extensions: vec!["rtf".to_string()],
+                mime_type: "application/rtf".to_string(),
+                category: FileCategory::Document,
+            },
+            // Windows Registry export
+            FileSignature {
+                magic_bytes: b"regf".to_vec(),
+                offset: 0,
+                extensions: vec!["dat".to_string(), "hiv".to_string()],
+                mime_type: "application/x-ms-registry".to_string(),
+                category: FileCategory::Document,
+            },
         ]
     }
 
@@ -539,6 +676,36 @@ impl SignatureDatabase {
             }
         }
         map
+    }
+
+    /// Add a single signature at runtime, keeping the extension map in sync.
+    pub fn add_signature(&mut self, signature: FileSignature) {
+        let idx = self.signatures.len();
+        for ext in &signature.extensions {
+            self.extension_map.entry(ext.clone()).or_default().push(idx);
+        }
+        self.signatures.push(signature);
+    }
+
+    /// Merge user signatures from a JSON string. Returns the number added.
+    ///
+    /// The document shape is `{ "signatures": [ { "magic": "...", ... } ] }`.
+    pub fn load_from_json(&mut self, json: &str) -> Result<usize> {
+        let file: SignatureFile = serde_json::from_str(json).map_err(|e| {
+            DetectionError::CorruptedStructure(format!("invalid signature JSON: {e}"))
+        })?;
+        let mut added = 0;
+        for spec in file.signatures {
+            self.add_signature(FileSignature::try_from(spec)?);
+            added += 1;
+        }
+        Ok(added)
+    }
+
+    /// Merge user signatures from a JSON file. Returns the number added.
+    pub fn load_from_file<P: AsRef<Path>>(&mut self, path: P) -> Result<usize> {
+        let content = std::fs::read_to_string(path).map_err(DetectionError::Io)?;
+        self.load_from_json(&content)
     }
 
     /// Match signatures against byte data with secondary validation
@@ -683,5 +850,90 @@ impl SignatureDatabase {
 
         // Default to generic zip
         Some("zip")
+    }
+}
+
+/// Load user-defined signatures from a JSON file into the global signature
+/// database. Returns the number of signatures added.
+///
+/// Subsequent calls to [`crate::FileType::from_bytes`] will match against the
+/// merged set. Intended to be called once at startup.
+pub fn load_user_signatures<P: AsRef<Path>>(path: P) -> Result<usize> {
+    let mut db = SIGNATURE_DB.write().map_err(|_| {
+        DetectionError::CorruptedStructure("Signature database lock poisoned".into())
+    })?;
+    db.load_from_file(path)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn parse_hex_handles_formats() {
+        assert_eq!(parse_hex("89504e47").unwrap(), vec![0x89, 0x50, 0x4e, 0x47]);
+        assert_eq!(parse_hex("0x8950").unwrap(), vec![0x89, 0x50]);
+        assert_eq!(
+            parse_hex("89 50 4e 47").unwrap(),
+            vec![0x89, 0x50, 0x4e, 0x47]
+        );
+        assert!(parse_hex("8950a").is_err()); // odd length
+        assert!(parse_hex("zz").is_err()); // non-hex
+        assert!(parse_hex("").is_err()); // empty
+    }
+
+    #[test]
+    fn load_from_json_adds_signatures() {
+        let mut db = SignatureDatabase::default();
+        let before = db.signatures.len();
+        let json = r#"{
+            "signatures": [
+                {
+                    "magic": "de ad c0 de fe ed",
+                    "extensions": ["myfmt"],
+                    "mime_type": "application/x-myfmt",
+                    "category": "executable"
+                }
+            ]
+        }"#;
+        let added = db.load_from_json(json).unwrap();
+        assert_eq!(added, 1);
+        assert_eq!(db.signatures.len(), before + 1);
+
+        // The new signature is matched and indexed by extension.
+        let matches = db.match_signatures(&[0xde, 0xad, 0xc0, 0xde, 0xfe, 0xed, 0x00]);
+        assert!(!matches.is_empty());
+        let (idx, _conf) = matches[0];
+        assert_eq!(db.signatures[idx].extensions, vec!["myfmt".to_string()]);
+        assert!(db.extension_map.contains_key("myfmt"));
+    }
+
+    #[test]
+    fn detects_new_formats() {
+        let db = SignatureDatabase::default();
+
+        // RTF
+        let m = db.match_signatures(br"{\rtf1\ansi");
+        assert_eq!(db.signatures[m[0].0].extensions, vec!["rtf".to_string()]);
+
+        // OTF font
+        let m = db.match_signatures(b"OTTO\x00\x01");
+        assert_eq!(db.signatures[m[0].0].extensions, vec!["otf".to_string()]);
+
+        // Windows shortcut
+        let lnk = [
+            0x4C, 0x00, 0x00, 0x00, 0x01, 0x14, 0x02, 0x00, 0x00, 0x00, 0x00, 0x00, 0xC0, 0x00,
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x46, 0x00,
+        ];
+        let m = db.match_signatures(&lnk);
+        assert_eq!(db.signatures[m[0].0].extensions, vec!["lnk".to_string()]);
+    }
+
+    #[test]
+    fn load_from_json_rejects_bad_signature() {
+        let mut db = SignatureDatabase::default();
+        let json =
+            r#"{ "signatures": [ { "magic": "xyz", "extensions": ["x"], "mime_type": "a/b" } ] }"#;
+        assert!(db.load_from_json(json).is_err());
     }
 }

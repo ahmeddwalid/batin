@@ -45,6 +45,7 @@
 //! - [`analysis`] - File structure analysis (PE parsing, validation, forensics)
 //! - [`io`] - I/O operations (archive scanning, batch processing, hashing)
 
+#[cfg(feature = "async")]
 use std::path::Path;
 use thiserror::Error;
 
@@ -64,6 +65,10 @@ pub mod file_io;
 
 /// Shared utilities
 pub mod utils;
+
+/// Online hash reputation lookups (VirusTotal).
+#[cfg(feature = "online")]
+pub mod reputation;
 
 // ============================================================================
 // Error Types
@@ -89,6 +94,9 @@ pub enum DetectionError {
 
     #[error("Timeout reading file")]
     Timeout,
+
+    #[error("Invalid detection configuration: {0}")]
+    InvalidConfig(String),
 }
 
 /// Result type alias for Batin operations
@@ -140,6 +148,110 @@ impl Default for DetectionConfig {
     }
 }
 
+/// Maximum possible Shannon entropy for byte data (log2 of 256 symbols).
+const MAX_ENTROPY_BITS: f64 = 8.0;
+
+impl DetectionConfig {
+    /// Validate the configuration, rejecting nonsensical or out-of-range values.
+    ///
+    /// Returns [`DetectionError::InvalidConfig`] describing the first problem found.
+    pub fn validate(&self) -> Result<()> {
+        if self.max_read_bytes == 0 {
+            return Err(DetectionError::InvalidConfig(
+                "max_read_bytes must be greater than 0".to_string(),
+            ));
+        }
+        if self.timeout_ms == 0 {
+            return Err(DetectionError::InvalidConfig(
+                "timeout_ms must be greater than 0".to_string(),
+            ));
+        }
+
+        for (name, value) in [
+            ("entropy_threshold", self.entropy_threshold),
+            (
+                "encrypted_entropy_threshold",
+                self.encrypted_entropy_threshold,
+            ),
+        ] {
+            if !value.is_finite() || !(0.0..=MAX_ENTROPY_BITS).contains(&value) {
+                return Err(DetectionError::InvalidConfig(format!(
+                    "{name} must be within 0.0..={MAX_ENTROPY_BITS} (got {value})"
+                )));
+            }
+        }
+
+        for (name, value) in [
+            (
+                "packed_chi_square_threshold",
+                self.packed_chi_square_threshold,
+            ),
+            (
+                "encrypted_chi_square_threshold",
+                self.encrypted_chi_square_threshold,
+            ),
+        ] {
+            if !value.is_finite() || value < 0.0 {
+                return Err(DetectionError::InvalidConfig(format!(
+                    "{name} must be a non-negative finite number (got {value})"
+                )));
+            }
+        }
+
+        if self.encrypted_entropy_threshold < self.entropy_threshold {
+            return Err(DetectionError::InvalidConfig(format!(
+                "encrypted_entropy_threshold ({}) must be >= entropy_threshold ({})",
+                self.encrypted_entropy_threshold, self.entropy_threshold
+            )));
+        }
+
+        Ok(())
+    }
+
+    // ------------------------------------------------------------------
+    // Builder-style setters (chainable, start from `DetectionConfig::default()`)
+    // ------------------------------------------------------------------
+
+    /// Set the maximum number of bytes to read for detection.
+    ///
+    /// ```
+    /// use batin::DetectionConfig;
+    /// let config = DetectionConfig::default()
+    ///     .with_max_read_bytes(8192)
+    ///     .with_entropy(false);
+    /// assert_eq!(config.max_read_bytes, 8192);
+    /// assert!(!config.enable_entropy);
+    /// ```
+    pub fn with_max_read_bytes(mut self, bytes: usize) -> Self {
+        self.max_read_bytes = bytes;
+        self
+    }
+
+    /// Enable or disable Shannon entropy analysis.
+    pub fn with_entropy(mut self, enabled: bool) -> Self {
+        self.enable_entropy = enabled;
+        self
+    }
+
+    /// Enable or disable polyglot detection.
+    pub fn with_polyglot(mut self, enabled: bool) -> Self {
+        self.enable_polyglot = enabled;
+        self
+    }
+
+    /// Enable or disable embedded-threat scanning.
+    pub fn with_embedded(mut self, enabled: bool) -> Self {
+        self.enable_embedded = enabled;
+        self
+    }
+
+    /// Set the operation timeout in milliseconds.
+    pub fn with_timeout_ms(mut self, timeout_ms: u64) -> Self {
+        self.timeout_ms = timeout_ms;
+        self
+    }
+}
+
 // ============================================================================
 // Core Types
 // ============================================================================
@@ -178,6 +290,12 @@ pub struct FileType {
     pub hashes: Option<file_io::hasher::FileHashes>,
     /// Binary metadata for PE/ELF files
     pub binary_metadata: Option<analysis::BinaryMetadata>,
+    /// Non-fatal warnings raised during detection (e.g. extension mismatch).
+    ///
+    /// These do not fail detection but are surfaced for callers that don't
+    /// configure a logger.
+    #[serde(default)]
+    pub warnings: Vec<String>,
 }
 
 // ============================================================================
@@ -187,6 +305,7 @@ pub struct FileType {
 impl FileType {
     /// Detect file type from byte slice
     pub fn from_bytes(data: &[u8], config: &DetectionConfig) -> Result<Self> {
+        config.validate()?;
         Self::from_bytes_internal(data, None, config)
     }
 
@@ -194,8 +313,13 @@ impl FileType {
     ///
     /// Uses bounded async I/O to prevent memory exhaustion on large files.
     /// Only reads up to `config.max_read_bytes` from the file.
+    ///
+    /// Requires the `async` feature.
+    #[cfg(feature = "async")]
     pub async fn from_file_path<P: AsRef<Path>>(path: P, config: &DetectionConfig) -> Result<Self> {
         use tokio::io::AsyncReadExt;
+
+        config.validate()?;
 
         let path = path.as_ref();
         let extension = path
@@ -255,16 +379,35 @@ impl FileType {
                     None
                 };
 
+                let mut warnings = Vec::new();
+                if let Some(ref ext) = declared_ext {
+                    if *ext != text_type.0 {
+                        warnings.push(format!(
+                            "Extension mismatch: file claims '{}' but detected '{}'",
+                            ext, text_type.0
+                        ));
+                    }
+                }
+
+                // Run any registered custom detector stages.
+                let embedded_threats = if config.enable_embedded {
+                    detection::detector::run_custom_detectors(data)
+                } else {
+                    Vec::new()
+                };
+                let threat_level = Self::escalate_threat(ThreatLevel::Safe, &embedded_threats);
+
                 return Ok(Self {
                     extension: text_type.0.to_string(),
                     mime_type: text_type.1.to_string(),
                     confidence: text_type.2,
                     entropy_profile,
-                    threat_level: ThreatLevel::Safe,
+                    threat_level,
                     detected_formats: vec![text_type.0.to_string()],
-                    embedded_threats: Vec::new(),
+                    embedded_threats,
                     hashes: None,
                     binary_metadata: None,
+                    warnings,
                 });
             }
             return Err(DetectionError::UnknownFormat);
@@ -294,23 +437,30 @@ impl FileType {
         };
 
         // Stage 4: Threat assessment
-        let threat_level = Self::assess_threat(signature, &entropy_profile, &detected_formats);
+        let mut threat_level = Self::assess_threat(signature, &entropy_profile, &detected_formats);
 
-        // Stage 5: Embedded content scanning
+        // Stage 5: Embedded content scanning (built-in + registered custom stages)
         let embedded_threats = if config.enable_embedded {
-            detection::embedded::scan_embedded_content(data, signature)?
+            let mut threats = detection::embedded::scan_embedded_content(data, signature)?;
+            threats.extend(detection::detector::run_custom_detectors(data));
+            threats
         } else {
             Vec::new()
         };
 
+        // Custom/embedded findings can escalate the overall threat level.
+        threat_level = Self::escalate_threat(threat_level, &embedded_threats);
+
         // Extension mismatch detection
+        let mut warnings = Vec::new();
         if let Some(ref ext) = declared_ext {
             if !signature.extensions.contains(ext) {
-                log::warn!(
+                let message = format!(
                     "Extension mismatch: file claims '{}' but detected '{}'",
-                    ext,
-                    signature.extensions[0]
+                    ext, signature.extensions[0]
                 );
+                log::warn!("{message}");
+                warnings.push(message);
             }
         }
 
@@ -324,7 +474,32 @@ impl FileType {
             embedded_threats,
             hashes: None,
             binary_metadata: None,
+            warnings,
         })
+    }
+
+    /// Numeric rank for ordering threat levels.
+    fn threat_rank(level: ThreatLevel) -> u8 {
+        match level {
+            ThreatLevel::Safe => 0,
+            ThreatLevel::Suspicious => 1,
+            ThreatLevel::Dangerous => 2,
+            ThreatLevel::Critical => 3,
+        }
+    }
+
+    /// Raise `current` to the highest severity among `threats`, if greater.
+    fn escalate_threat(current: ThreatLevel, threats: &[detection::EmbeddedThreat]) -> ThreatLevel {
+        threats
+            .iter()
+            .map(|t| t.severity)
+            .fold(current, |acc, sev| {
+                if Self::threat_rank(sev) > Self::threat_rank(acc) {
+                    sev
+                } else {
+                    acc
+                }
+            })
     }
 
     fn assess_threat(
@@ -562,16 +737,83 @@ fn detect_text_type(
 
 // Detection module re-exports
 pub use detection::{
-    EmbeddedThreat, EntropyProfile, EntropyStats, FileCategory, FileSignature, SignatureDatabase,
+    load_user_signatures, register_detector, Detector, EmbeddedThreat, EntropyProfile,
+    EntropyStats, FileCategory, FileSignature, SignatureDatabase, SignatureFile, SignatureSpec,
     ThreatType, SIGNATURE_DB,
 };
 
+#[cfg(feature = "yara")]
+pub use detection::{register_yara_rules_from_file, YaraDetector};
+
 // Analysis module re-exports
-pub use analysis::{classify_fragment, parse_binary, BinaryFormat, BinaryMetadata};
+#[cfg(feature = "binary-parsing")]
+pub use analysis::parse_binary;
+pub use analysis::{classify_fragment, BinaryFormat, BinaryMetadata};
 
 // I/O module re-exports
 pub use file_io::{
-    archive,
-    batch::{BatchProcessor, BatchProgress},
+    archive::{self, ArchiveConfig},
     hasher,
 };
+
+#[cfg(feature = "async")]
+pub use file_io::batch::{BatchProcessor, BatchProgress};
+
+#[cfg(test)]
+mod config_tests {
+    use super::*;
+
+    #[test]
+    fn default_config_is_valid() {
+        assert!(DetectionConfig::default().validate().is_ok());
+    }
+
+    #[test]
+    fn rejects_zero_max_read_bytes() {
+        let config = DetectionConfig {
+            max_read_bytes: 0,
+            ..Default::default()
+        };
+        assert!(matches!(
+            config.validate(),
+            Err(DetectionError::InvalidConfig(_))
+        ));
+    }
+
+    #[test]
+    fn rejects_out_of_range_entropy_threshold() {
+        let config = DetectionConfig {
+            entropy_threshold: 9.0,
+            ..Default::default()
+        };
+        assert!(matches!(
+            config.validate(),
+            Err(DetectionError::InvalidConfig(_))
+        ));
+    }
+
+    #[test]
+    fn rejects_inverted_entropy_thresholds() {
+        let config = DetectionConfig {
+            entropy_threshold: 7.5,
+            encrypted_entropy_threshold: 7.0,
+            ..Default::default()
+        };
+        assert!(matches!(
+            config.validate(),
+            Err(DetectionError::InvalidConfig(_))
+        ));
+    }
+
+    #[test]
+    fn from_bytes_rejects_invalid_config() {
+        let config = DetectionConfig {
+            timeout_ms: 0,
+            ..Default::default()
+        };
+        assert!(matches!(
+            FileType::from_bytes(b"hello", &config),
+            Err(DetectionError::InvalidConfig(_))
+        ));
+    }
+}
